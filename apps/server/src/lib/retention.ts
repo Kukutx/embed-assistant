@@ -20,5 +20,7 @@ export async function purgeExpired(sql: Sql, defaultDays: number): Promise<numbe
     if (rows.length < 500) break;
   }
   await sql`DELETE FROM jobs WHERE status IN ('succeeded', 'failed') AND updated_at < now() - interval '30 days'`;
+  // Live events are only needed while clients are connected; the messages themselves stay.
+  await sql`DELETE FROM conversation_events WHERE created_at < now() - interval '7 days'`;
   return total;
 }

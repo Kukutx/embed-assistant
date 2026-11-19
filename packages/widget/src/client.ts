@@ -2,8 +2,10 @@ import type {
   ClientToolDef,
   Conversation,
   HandoffResult,
+  ConversationEvent,
   ConversationList,
   CreateRunResponse,
+  Message,
   MessageList,
   PageContext,
   PublicWidgetConfig,
@@ -20,6 +22,7 @@ export class ApiError extends Error {
     readonly retryAfter: number | null = null,
     /** Server request id (`x-request-id`), for support and log correlation. */
     readonly requestId: string | null = null,
+    readonly details: unknown = null,
   ) {
     super(message);
   }
@@ -162,15 +165,17 @@ export class Client {
     if (!res.ok) {
       let code = "internal_error";
       let message = res.statusText;
+      let details: unknown = null;
       try {
-        const j = (await res.json()) as { error?: { code?: string; message?: string } };
+        const j = (await res.json()) as { error?: { code?: string; message?: string; details?: unknown } };
         code = j.error?.code ?? code;
         message = j.error?.message ?? message;
+        details = j.error?.details ?? null;
       } catch {
         /* non-JSON error */
       }
       const ra = Number(res.headers.get("retry-after"));
-      throw new ApiError(res.status, code, message, Number.isFinite(ra) && ra > 0 ? ra : null, res.headers.get("x-request-id"));
+      throw new ApiError(res.status, code, message, Number.isFinite(ra) && ra > 0 ? ra : null, res.headers.get("x-request-id"), details);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
@@ -213,6 +218,10 @@ export class Client {
   }
   getConversation(id: string): Promise<Conversation> {
     return this.request("GET", `/v1/conversations/${encodeURIComponent(id)}`);
+  }
+  /** A message to the person handling the conversation (human mode). */
+  sendMessage(conversationId: string, content: string): Promise<Message> {
+    return this.request("POST", `/v1/conversations/${encodeURIComponent(conversationId)}/messages`, { content });
   }
   cancelRun(runId: string): Promise<unknown> {
     return this.request("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`);
@@ -264,6 +273,45 @@ export class Client {
       }
     }
   }
+
+  /**
+   * Follow a conversation's events (a person joining, their replies) until
+   * `signal` aborts. Reconnects with Last-Event-ID, so nothing is missed.
+   */
+  async followConversation(
+    conversationId: string,
+    onEvent: (e: ConversationEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    let lastId: string | null = null;
+    let attempt = 0;
+    while (!signal.aborted) {
+      try {
+        const session = await this.ensureSession();
+        const res = await fetch(`${this.base}/v1/conversations/${encodeURIComponent(conversationId)}/events`, {
+          headers: { authorization: `Bearer ${session.token}`, accept: "text/event-stream", ...(lastId ? { "last-event-id": lastId } : {}) },
+          credentials: "omit",
+          signal,
+        });
+        if (res.status === 401) {
+          this.session = null;
+          this.set("session", null);
+        }
+        if (!res.ok || !res.body) throw new ApiError(res.status, "stream_failed", `stream failed (${res.status})`);
+        attempt = 0;
+        for await (const e of parseSse(res.body)) {
+          if (e.id) lastId = e.id;
+          if (e.data) onEvent(JSON.parse(e.data) as ConversationEvent);
+        }
+      } catch (err) {
+        if (signal.aborted) return;
+        if (err instanceof ApiError && (err.status === 403 || err.status === 404)) return;
+        attempt++;
+      }
+      // The server ends streams after a few minutes; reconnect (with backoff after errors).
+      await new Promise((r) => setTimeout(r, attempt ? Math.min(30_000, 500 * 2 ** attempt) : 100));
+    }
+  }
 }
 
 /** Minimal SSE parser over a fetch body (works where EventSource cannot send headers). */
@@ -283,7 +331,8 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + (buf[nl] === "\r" ? 2 : 1));
         if (line === "") {
-          if (data.length) yield { event, data: data.join("\n"), id };
+          // An id-only block still moves the resume position (SSE spec).
+          if (data.length || id !== null) yield { event, data: data.join("\n"), id };
           event = "message";
           data = [];
           continue;

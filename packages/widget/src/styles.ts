@@ -136,6 +136,9 @@ a.ea-source:hover{background:var(--ea-surface-2)}
 .ea-btn:disabled{opacity:.5;cursor:default}
 .ea-handoff{display:flex;flex-direction:column;align-items:flex-start;gap:8px;border-left:3px solid var(--ea-accent);background:var(--ea-surface-2);padding:10px 12px;border-radius:0 10px 10px 0;margin:6px 0;font-size:13.5px}
 .ea-handoff a{color:var(--ea-accent-link)}
+.ea-system{text-align:center;color:var(--ea-muted);font-size:12.5px;margin:4px 0}
+.ea-author{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ea-muted);margin-bottom:2px}
+.ea-author-dot{width:8px;height:8px;border-radius:50%;background:var(--ea-accent)}
 .ea-followups{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 .ea-followups-label{font-size:12px;font-weight:600;color:var(--ea-muted);text-transform:uppercase;letter-spacing:.04em}
 .ea-followup{align-self:flex-start;max-width:100%;text-align:left;font:inherit;font-size:13.5px;color:var(--ea-fg);background:var(--ea-bg);border:1px solid var(--ea-border);border-radius:10px;padding:6px 12px;cursor:pointer}

@@ -27,6 +27,8 @@ const RENOTIFY_AFTER = "10 minutes";
  */
 export async function requestHandoff(deps: { sql: Sql; models: ModelRegistry; log: Logger }, p: HandoffParams): Promise<HandoffResult> {
   const { sql } = deps;
+  // A new request after the last one was resolved puts the conversation back in the inbox.
+  await sql`UPDATE conversations SET handoff_resolved_at = NULL WHERE tenant_id = ${p.tenantId} AND id = ${p.conversationId} AND handoff_resolved_at IS NOT NULL`;
   const updated = await sql<{ handoff_at: Date; widget_id: string; title: string | null }[]>`
     UPDATE conversations SET handoff_at = now(), handoff_reason = ${p.reason}
     WHERE tenant_id = ${p.tenantId} AND id = ${p.conversationId}

@@ -2,6 +2,15 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.6
+
+People can step in.
+
+- **Inbox** in the console: handed-off conversations wait there; an agent takes over (or just replies), the AI stops, and replies reach the visitor in real time. Hand back to the assistant, which then knows what the person said, or resolve.
+- Conversations have a `mode` (`assistant` or `human`) and an assignee. New: `GET /v1/conversations/{id}/events` (Server-Sent Events, resumable), `POST /v1/conversations/{id}/messages`, `GET /v1/admin/conversations/{id}`, `POST /v1/admin/conversations/{id}/assign|reply|release`, `?handoff=` and `?assignee=` filters, `message.received` webhook for helpdesk bridges. Messages written by people carry `author`.
+- Widget: "Maria joined the conversation", replies with the person's name, messages routed to the person, back to the AI on hand-back, in all eight UI languages.
+- Fix: run event streams could wait up to 2 seconds for an event that was written while the stream was between reads.
+
 ## 1.0.5
 
 Team access.

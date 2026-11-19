@@ -120,6 +120,26 @@ A handoff:
 
 Repeated requests within 10 minutes don't send another webhook. API: `POST /v1/conversations/{id}/handoff` with `{ reason? }`.
 
+### Live takeover from the console (or your helpdesk)
+
+Handed-off conversations wait in the console's **Inbox**. A person with the `agent` role (or higher) opens one and takes over, or simply replies, which takes over automatically:
+
+- The conversation switches to `human` mode. The AI stops answering (an answer in progress is cancelled).
+- The visitor sees "Maria joined the conversation" and the reply immediately; their messages go to the person.
+- *Hand back to assistant* returns the conversation to the AI, which then sees what the person wrote. *Resolve* also removes it from the inbox; a new handoff request puts it back.
+
+Everything goes through the API, so a helpdesk or chat tool can carry the conversation instead of the console, with an `admin` API key:
+
+| Step | API |
+|---|---|
+| Find waiting conversations | `GET /v1/admin/conversations?handoff=waiting` (or the `handoff.requested` webhook) |
+| Take over | `POST /v1/admin/conversations/{id}/assign` `{ displayName? }` |
+| Reply | `POST /v1/admin/conversations/{id}/reply` `{ content, displayName? }` |
+| Receive the visitor's messages | `message.received` webhook |
+| Hand back or resolve | `POST /v1/admin/conversations/{id}/release` `{ resolve }` |
+
+Widgets and custom UIs follow `GET /v1/conversations/{id}/events` (Server-Sent Events: `conversation.updated`, `message.created`) and, in `human` mode, send messages with `POST /v1/conversations/{id}/messages` instead of starting runs (`POST /runs` returns `409` with `details.mode = "human"`). Messages written by people carry `author: { type: "human", name }`.
+
 ## Webhooks
 
 Webhooks follow the [Standard Webhooks](https://www.standardwebhooks.com/) specification, so existing verification libraries for most languages work unchanged.
@@ -130,7 +150,9 @@ Webhooks follow the [Standard Webhooks](https://www.standardwebhooks.com/) speci
 | `message.completed` | `{ conversationId, widgetId, assistantId, runId, subject, question, answer, tools, sourceCount, deploymentId, usage }` |
 | `feedback.submitted` | `{ conversationId, messageId, rating, comment }` |
 | `handoff.requested` | `{ conversation, subject, trigger, reason, summary, pageContext, transcript, requestedAt }` |
+| `message.received` | `{ conversationId, message, assignee, subject }`: the visitor wrote while a person handles the conversation |
 | `source.synced` | `{ sourceId, status, pages?, failures?, error? }` |
+| `audit.recorded` | An [audit log](api.md#audit-log) entry: `{ id, at, actor, action, target, changes, … }` |
 
 Body: `{ "type": "<event>", "timestamp": "<ISO 8601>", "data": { … } }`. The payload is fixed when the event happens, so retries send identical bytes.
 

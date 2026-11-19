@@ -10,6 +10,7 @@ import type { AppEnv, Services } from "./env.js";
 import { adminAuth, publicCors, requestContext, sessionAuth, WidgetCache } from "./middleware.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
+import { inboxRoutes } from "./routes/inbox.js";
 import { adminAgentRoutes } from "./routes/adminAgent.js";
 import { mcpRoutes } from "../mcp/server.js";
 import { adminMcpRoutes } from "./routes/adminMcp.js";
@@ -87,6 +88,7 @@ export function createApp(s: Services): Hono<AppEnv> {
   adminAgentRoutes(app, s);
   adminMcpRoutes(app, s);
   authRoutes(app, s);
+  inboxRoutes(app, s);
   mcpRoutes(app, s);
 
   if (s.cfg.SERVE_WIDGET) {

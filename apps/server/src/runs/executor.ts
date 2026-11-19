@@ -234,7 +234,8 @@ export class RunExecutor {
       await emit(job.runId, ++seq, "run.started", { modelAlias: a.model_alias });
 
       const historyRows = await sql<{ role: "user" | "assistant"; content: string }[]>`
-        SELECT role, content FROM messages
+        SELECT role, CASE WHEN author_name IS NOT NULL THEN '[' || author_name || ', a person on the support team, wrote:] ' || content ELSE content END AS content
+        FROM messages
         WHERE conversation_id = ${job.conversationId} AND id <> ${job.userMessage.id} AND status = 'complete'
         ORDER BY created_at DESC, id DESC LIMIT 40`;
       const history = trimHistory(historyRows.reverse());

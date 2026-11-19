@@ -62,3 +62,18 @@ fieldset.box legend{font-weight:600;font-size:13px;padding:0 4px}
 .clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 td.bad,.bad{color:var(--danger)}
 td.row{display:table-cell;white-space:nowrap;text-align:right}td.row>*{margin:0 0 4px 6px}
+
+.inbox{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
+.inbox-list{display:flex;flex-direction:column;gap:2px;max-height:70vh;overflow:auto}
+.inbox-item{all:unset;cursor:pointer;display:grid;gap:2px;padding:9px 10px;border-radius:8px}
+.inbox-item:hover,.inbox-item.current{background:var(--bg)}
+.inbox-item:focus-visible{outline:2px solid var(--accent)}
+.inbox-pane{display:grid;gap:12px;min-height:420px}
+.inbox-thread{display:flex;flex-direction:column;gap:10px;max-height:52vh;overflow:auto;padding:4px}
+.bubble{max-width:80%;padding:8px 12px;border-radius:12px;background:var(--code)}
+.bubble.visitor{align-self:flex-start}
+.bubble.ai,.bubble.person{align-self:flex-end;background:var(--bg);border:1px solid var(--border)}
+.bubble.person{border-color:var(--accent)}
+.bubble .who{font-size:12px;font-weight:600;color:var(--muted)}
+.bubble .body{white-space:pre-wrap}
+@media (max-width:900px){.inbox{grid-template-columns:1fr}}

@@ -11,6 +11,7 @@ import {
   KnowledgeSourceInput,
   KnowledgeSourcePatch,
   FileUploadResult,
+  HandoffState,
   MessageList,
   ModelAliasInfo,
   UsageSummary,
@@ -315,9 +316,19 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
     });
 
   // ------------------------------------------------------------- conversations
-  route(app, { method: "get", path: "/v1/admin/conversations", tag: A, summary: "Browse conversations", auth: "admin", query: AdminPage, response: { status: 200, schema: z.object({ items: z.array(AdminConversation), nextCursor: z.string().nullable() }) } },
+  const ConversationQuery = AdminPage.extend({
+    handoff: HandoffState.optional(),
+    /** `me`, or a console user id. */
+    assignee: z.string().max(64).optional(),
+  });
+  route(app, {
+      method: "get", path: "/v1/admin/conversations", tag: A, summary: "Browse conversations",
+      description: "Most recently active first. `handoff` filters the human inbox: `waiting` (handoff requested, nobody joined), `active` (a person is handling it), `resolved`, `any`.",
+      auth: "admin", query: ConversationQuery, response: { status: 200, schema: z.object({ items: z.array(AdminConversation), nextCursor: z.string().nullable() }) },
+    },
     async (c, { query }) => {
-      const rows = await adminListConversations(sql, tid(c), query.limit + 1, query.cursor ?? null);
+      const assigneeId = query.assignee === "me" ? c.get("actor").id : query.assignee;
+      const rows = await adminListConversations(sql, tid(c), query.limit + 1, query.cursor ?? null, { handoff: query.handoff, assigneeId });
       const items = rows.slice(0, query.limit);
       return c.json({ items, nextCursor: rows.length > query.limit ? (items.at(-1)?.id ?? null) : null });
     });

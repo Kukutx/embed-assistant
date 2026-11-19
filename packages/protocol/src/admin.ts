@@ -274,10 +274,32 @@ export const AdminConversation = z.object({
   title: z.string().nullable(),
   messageCount: z.number().int(),
   handoffRequestedAt: Timestamp.nullable().optional(),
+  handoffReason: z.string().nullable().optional(),
+  handoffResolvedAt: Timestamp.nullable().optional(),
+  mode: z.enum(["assistant", "human"]).optional(),
+  /** The person handling the conversation in `human` mode. */
+  assignee: z.object({ id: Id.nullable(), name: z.string() }).nullable().optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });
 export type AdminConversation = z.infer<typeof AdminConversation>;
+
+/** Inbox filter: `waiting` = handoff requested, nobody has joined; `active` = a person is handling it; `resolved`. */
+export const HandoffState = z.enum(["waiting", "active", "resolved", "any"]);
+export const AssignRequest = z.object({
+  /** Name shown to the visitor; defaults to the person's name (or the API key's name). */
+  displayName: z.string().trim().min(1).max(80).optional(),
+  /** Take over from another person. */
+  force: z.boolean().default(false),
+});
+export const AgentReplyRequest = z.object({
+  content: z.string().trim().min(1).max(8000),
+  displayName: z.string().trim().min(1).max(80).optional(),
+});
+export const ReleaseRequest = z.object({
+  /** Mark the handoff as resolved (default) or put it back in the waiting queue. */
+  resolve: z.boolean().default(true),
+});
 
 export const UsageSummary = z.object({
   from: Timestamp,
@@ -438,6 +460,8 @@ export const WebhookEventType = z.enum([
   "source.synced",
   /** Every audit log entry, for streaming to a SIEM. */
   "audit.recorded",
+  /** The visitor wrote while a person handles the conversation (bridge to your helpdesk). */
+  "message.received",
 ]);
 export type WebhookEventType = z.infer<typeof WebhookEventType>;
 

@@ -34,6 +34,8 @@ data: {"seq":4,"runId":"run_…","type":"message.delta","ts":"…","data":{"mess
 
 Reconnect with `Last-Event-ID: <seq>` (or `?after=<seq>`) to continue exactly where you left off. Events are stored, so any server instance can serve the stream. Clients must ignore unknown event types and fields.
 
+When a person on the team takes over (see [tools.md](tools.md#live-takeover-from-the-console-or-your-helpdesk)), the conversation's `mode` becomes `human`: follow `GET /v1/conversations/{id}/events` (Server-Sent Events `conversation.updated` and `message.created`, resumable with `Last-Event-ID`) and send with `POST /v1/conversations/{id}/messages`.
+
 Other endpoints: `GET /v1/conversations`, `GET/DELETE /v1/conversations/{id}`, `GET /v1/conversations/{id}/messages`, `GET /v1/runs/{id}`, `POST /v1/runs/{id}/cancel`, `POST /v1/messages/{id}/feedback`, `POST /v1/runs/{id}/tool-results`, `POST /v1/conversations/{id}/handoff`. `DELETE /v1/conversations/{id}` deletes permanently. Tools and handoff are described in [tools.md](tools.md).
 
 Rules:
@@ -54,7 +56,8 @@ Rules:
 | `/v1/admin/actions` (+ `/test`) | HTTP tools |
 | `/v1/admin/mcp-servers` (+ `/refresh`, `/test`) | Remote MCP servers as tools ([mcp.md](mcp.md)) |
 | `/v1/admin/webhooks` (+ `/test`, `/rotate-secret`, `/deliveries`) | Webhooks |
-| `/v1/admin/conversations` (+ `DELETE`, `/export?days=` as NDJSON) | Transcripts |
+| `/v1/admin/conversations` (+ `?handoff=waiting\|active\|resolved`, `DELETE`, `/export?days=` as NDJSON) | Transcripts and the handoff inbox |
+| `/v1/admin/conversations/{id}/assign`, `/reply`, `/release` | Live takeover by a person |
 | `/v1/admin/subjects/{subjectId}` (`DELETE`) | Erase everything about one visitor |
 | `/v1/admin/insights?days=`, `/usage`, `/models` | Analytics |
 | `/v1/admin/keys`, `/settings` | API keys, retention and budget |

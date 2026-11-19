@@ -39,6 +39,10 @@ export interface Strings {
   related: string;
   working: string;
   handoffFailed: string;
+  /** `{name}` is replaced with the person's name. */
+  agentJoined: string;
+  backToAssistant: string;
+  messagePerson: string;
 }
 
 const en: Strings = {
@@ -81,6 +85,9 @@ const en: Strings = {
   related: "Related questions",
   working: "Working…",
   handoffFailed: "Couldn't reach the team. Please try again.",
+  agentJoined: "{name} joined the conversation",
+  backToAssistant: "You are chatting with the assistant again",
+  messagePerson: "Message {name}…",
 };
 
 const zh: Strings = {
@@ -123,6 +130,9 @@ const zh: Strings = {
   related: "相关问题",
   working: "处理中…",
   handoffFailed: "无法联系团队，请重试。",
+  agentJoined: "{name} 已加入对话",
+  backToAssistant: "已切换回 AI 助手",
+  messagePerson: "给 {name} 发消息…",
 };
 
 const it: Strings = {
@@ -165,6 +175,9 @@ const it: Strings = {
   related: "Domande correlate",
   working: "In corso…",
   handoffFailed: "Impossibile contattare il team. Riprova.",
+  agentJoined: "{name} si è unito alla conversazione",
+  backToAssistant: "Stai di nuovo parlando con l'assistente",
+  messagePerson: "Scrivi a {name}…",
 };
 
 const es: Strings = {
@@ -207,6 +220,9 @@ const es: Strings = {
   related: "Preguntas relacionadas",
   working: "Procesando…",
   handoffFailed: "No se pudo contactar al equipo. Inténtalo de nuevo.",
+  agentJoined: "{name} se unió a la conversación",
+  backToAssistant: "Vuelves a hablar con el asistente",
+  messagePerson: "Escribe a {name}…",
 };
 
 const fr: Strings = {
@@ -249,6 +265,9 @@ const fr: Strings = {
   related: "Questions associées",
   working: "En cours…",
   handoffFailed: "Impossible de joindre l'équipe. Réessayez.",
+  agentJoined: "{name} a rejoint la conversation",
+  backToAssistant: "Vous discutez de nouveau avec l'assistant",
+  messagePerson: "Écrire à {name}…",
 };
 
 const de: Strings = {
@@ -291,6 +310,9 @@ const de: Strings = {
   related: "Ähnliche Fragen",
   working: "Wird ausgeführt…",
   handoffFailed: "Das Team ist nicht erreichbar. Bitte erneut versuchen.",
+  agentJoined: "{name} ist dem Gespräch beigetreten",
+  backToAssistant: "Sie chatten wieder mit dem Assistenten",
+  messagePerson: "Nachricht an {name}…",
 };
 
 const ja: Strings = {
@@ -333,6 +355,9 @@ const ja: Strings = {
   related: "関連する質問",
   working: "処理中…",
   handoffFailed: "チームに連絡できませんでした。もう一度お試しください。",
+  agentJoined: "{name} が会話に参加しました",
+  backToAssistant: "アシスタントとの会話に戻りました",
+  messagePerson: "{name} にメッセージ…",
 };
 
 const pt: Strings = {
@@ -375,6 +400,9 @@ const pt: Strings = {
   related: "Perguntas relacionadas",
   working: "Processando…",
   handoffFailed: "Não foi possível contatar a equipe. Tente novamente.",
+  agentJoined: "{name} entrou na conversa",
+  backToAssistant: "Você está conversando com o assistente novamente",
+  messagePerson: "Mensagem para {name}…",
 };
 
 const TABLE: Record<string, Strings> = { en, zh, it, es, fr, de, ja, pt };

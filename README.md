@@ -10,6 +10,7 @@ It is built to be generic and boring to operate:
 - **Knows who is asking, safely.** Your backend signs a short JWT; the assistant only searches knowledge that user may read. Filtering happens in SQL before the model sees anything.
 - **One dependency.** Node.js and Postgres (with pgvector). No Redis, no queue service. Multi-instance safe.
 - **Takes actions, not just answers.** Call your HTTP APIs as tools (signed requests, optional visitor confirmation), run functions in the visitor's page (`EmbedAssistant.registerTool`), and hand the conversation to a person with a summary. See [docs/tools.md](docs/tools.md).
+- **People can step in live.** Handed-off chats wait in the console inbox; an agent takes over and the visitor sees their replies instantly, then hands back to the AI. Helpdesks can do the same through the API and webhooks.
 - **Speaks MCP both ways.** Other AI tools (IDE agents, desktop assistants) can search your knowledge and get grounded answers through `/mcp`; assistants can use the tools of any remote MCP server. See [docs/mcp.md](docs/mcp.md).
 - **Fits into your systems.** [Standard Webhooks](https://www.standardwebhooks.com/) for conversations, answers, feedback, handoffs, syncs and audit entries; scoped API keys; NDJSON export.
 - **Learns where it falls short.** Insights show top questions, knowledge gaps, unhelpful answers, handoffs and tool usage, so you know which docs to write next.

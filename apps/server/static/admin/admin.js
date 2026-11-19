@@ -155,6 +155,7 @@ function loginView(error) {
 // ------------------------------------------------------------------ views
 const VIEWS = {
   overview: { title: "Overview", render: overview, perm: "analytics:read" },
+  inbox: { title: "Inbox", render: inbox, perm: "conversations:read" },
   insights: { title: "Insights", render: insights, perm: "analytics:read" },
   assistants: { title: "Assistants", render: assistants, perm: "config:read" },
   widgets: { title: "Widgets", render: widgets, perm: "config:read" },
@@ -1392,6 +1393,140 @@ async function settings(main) {
       })(),
     ),
   );
+}
+
+// ------------------------------------------------------------------ inbox (live handoffs)
+const INBOX_TABS = [
+  ["waiting", "Waiting"],
+  ["active", "Active"],
+  ["mine", "Mine"],
+  ["resolved", "Resolved"],
+];
+
+async function inbox(main) {
+  const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
+  const tab = params.get("tab") ?? "waiting";
+  const openId = params.get("c");
+  const go = (t, c) => (location.hash = `#/inbox?tab=${t}${c ? `&c=${encodeURIComponent(c)}` : ""}`);
+  const query = tab === "mine" ? "handoff=active&assignee=me" : `handoff=${tab}`;
+  const page = await api("GET", `/conversations?limit=100&${query}`);
+  const canReply = allowed("conversations:reply");
+
+  const list = h(
+    "div",
+    { class: "inbox-list" },
+    page.items.length
+      ? page.items.map((c) =>
+          h(
+            "button",
+            { class: `inbox-item${c.id === openId ? " current" : ""}`, onclick: () => go(tab, c.id) },
+            h("strong", { text: c.title || "(untitled)" }),
+            h("span", { class: "small muted", text: c.handoffReason || c.subjectId.slice(0, 40) }),
+            h("span", { class: "small muted" }, c.mode === "human" ? h("span", { class: "badge ok", text: c.assignee?.name ?? "person" }) : null, ` ${fmtDate(c.updatedAt)}`),
+          ),
+        )
+      : h("p", { class: "muted small", style: "padding:8px", text: tab === "waiting" ? "Nobody is waiting. Handoffs appear here as soon as a visitor asks for a person." : "Nothing here." }),
+  );
+  const pane = h("div", { class: "inbox-pane card" });
+  main.append(
+    h("div", { class: "row", style: "margin-bottom:12px" }, INBOX_TABS.map(([t, label]) => h("button", { class: `btn${t === tab ? " primary" : ""}`, text: label, onclick: () => go(t) }))),
+    h("div", { class: "inbox" }, h("div", { class: "card", style: "padding:6px" }, list), pane),
+  );
+
+  if (!openId) pane.append(h("p", { class: "muted", text: "Choose a conversation." }));
+  else {
+    const conv = await api("GET", `/conversations/${encodeURIComponent(openId)}`);
+    // After taking over or handing back, follow the conversation to the tab it now belongs to.
+    await conversationPane(pane, openId, conv, canReply, (next) => go(next ?? tab, openId));
+  }
+
+  // Refresh the queue while the page is open.
+  const tick = () => {
+    if (!location.hash.startsWith("#/inbox")) return;
+    // Don't re-render under someone typing a reply.
+    if (document.querySelector("dialog[open]") || (pane.contains(document.activeElement) && document.activeElement.value)) pollTimer = setTimeout(tick, 8000);
+    else route();
+  };
+  pollTimer = setTimeout(tick, 8000);
+}
+
+async function conversationPane(pane, id, conv, canReply, refresh) {
+  const thread = h("div", { class: "inbox-thread" });
+  const header = h("div", { class: "top", style: "margin-bottom:8px" });
+  let state = conv;
+  let lastCount = -1;
+  const draw = async () => {
+    const msgs = await api("GET", `/conversations/${id}/messages?limit=200`);
+    if (msgs.items.length === lastCount) return;
+    lastCount = msgs.items.length;
+    thread.replaceChildren(
+      ...msgs.items.map((m) =>
+        h(
+          "div",
+          { class: `bubble ${m.role === "user" ? "visitor" : m.author ? "person" : "ai"}` },
+          h("div", { class: "who", text: m.role === "user" ? "Visitor" : m.author ? m.author.name : "Assistant" }),
+          h("div", { class: "body", text: m.content }),
+          h("div", { class: "small muted", text: fmtDate(m.createdAt) }),
+        ),
+      ),
+    );
+    thread.scrollTop = thread.scrollHeight;
+  };
+  const act = async (fn, nextTab) => {
+    try {
+      await fn();
+      refresh(nextTab);
+      route();
+    } catch (err) {
+      alert(errorText(err));
+    }
+  };
+  const human = state?.mode === "human";
+  header.append(
+    h("div", {}, h("h2", { style: "margin:0", text: state?.title || "Conversation" }), h("div", { class: "small muted", text: state ? `${state.subjectId}${state.handoffReason ? ` · ${state.handoffReason}` : ""}` : "" })),
+    canReply
+      ? h(
+          "div",
+          { class: "row" },
+          human ? null : h("button", { class: "btn primary", text: "Take over", onclick: () => act(() => api("POST", `/conversations/${id}/assign`, {}), "active") }),
+          human ? h("button", { class: "btn", text: "Hand back to assistant", onclick: () => act(() => api("POST", `/conversations/${id}/release`, { resolve: false }), "waiting") }) : null,
+          state?.handoffResolvedAt && !human ? null : h("button", { class: "btn", text: "Resolve", onclick: () => act(() => api("POST", `/conversations/${id}/release`, { resolve: true }), "resolved") }),
+        )
+      : null,
+  );
+  const input = h("textarea", { placeholder: human ? "Reply to the visitor…" : "Replying takes the conversation over from the assistant…", rows: 3 });
+  const form = canReply
+    ? h(
+        "form",
+        {
+          onsubmit: async (e) => {
+            e.preventDefault();
+            const content = input.value.trim();
+            if (!content) return;
+            try {
+              await api("POST", `/conversations/${id}/reply`, { content });
+              input.value = "";
+              if (!human) {
+                refresh("active");
+                return route();
+              }
+              await draw();
+            } catch (err) {
+              alert(errorText(err));
+            }
+          },
+        },
+        input,
+        h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Send" }), h("span", { class: "small muted", text: "Ctrl+Enter to send. The visitor sees your reply instantly." })),
+      )
+    : null;
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) form?.requestSubmit();
+  });
+  pane.append(header, thread, form);
+  await draw();
+  // Live updates of the open conversation.
+  const timer = setInterval(() => (pane.isConnected ? draw().catch(() => {}) : clearInterval(timer)), 2500);
 }
 
 // ------------------------------------------------------------------ team and sign-in

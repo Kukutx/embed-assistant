@@ -74,6 +74,11 @@ export interface ConversationRow {
   subject_kind: "anonymous" | "user";
   title: string | null;
   handoff_at: Date | null;
+  handoff_reason?: string | null;
+  handoff_resolved_at?: Date | null;
+  mode: "assistant" | "human";
+  assignee_id: string | null;
+  assignee_name: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -89,6 +94,7 @@ export interface MessageRow {
   feedback: "up" | "down" | null;
   suggestions: string[];
   tool_calls: { name: string; isError: boolean }[];
+  author_name: string | null;
   created_at: Date;
 }
 
@@ -166,6 +172,8 @@ export const toConversation = (r: ConversationRow): Conversation => ({
   id: r.id,
   title: r.title,
   handoffRequestedAt: isoOrNull(r.handoff_at),
+  mode: r.mode ?? "assistant",
+  agentName: r.mode === "human" ? (r.assignee_name ?? null) : null,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
@@ -178,7 +186,7 @@ export const toMessage = (r: MessageRow): Message => ({
   citations: r.citations,
   status: r.status,
   feedback: r.feedback,
-  ...(r.role === "assistant" ? { suggestions: r.suggestions ?? [] } : {}),
+  ...(r.role === "assistant" ? { suggestions: r.suggestions ?? [], author: r.author_name ? { type: "human" as const, name: r.author_name } : null } : {}),
   createdAt: iso(r.created_at),
 });
 
@@ -472,12 +480,12 @@ export async function getMessage(sql: Tx, tenantId: string, id: string): Promise
 
 export async function insertMessage(
   sql: Tx,
-  m: { tenantId: string; conversationId: string; role: "user" | "assistant"; content: string; status: Message["status"] },
+  m: { tenantId: string; conversationId: string; role: "user" | "assistant"; content: string; status: Message["status"]; authorName?: string | null },
 ): Promise<MessageRow> {
   const id = newId("msg");
   const rows = await sql<MessageRow[]>`
-    INSERT INTO messages (id, tenant_id, conversation_id, role, content, status)
-    VALUES (${id}, ${m.tenantId}, ${m.conversationId}, ${m.role}, ${m.content}, ${m.status})
+    INSERT INTO messages (id, tenant_id, conversation_id, role, content, status, author_name)
+    VALUES (${id}, ${m.tenantId}, ${m.conversationId}, ${m.role}, ${m.content}, ${m.status}, ${m.authorName ?? null})
     RETURNING *`;
   return rows[0]!;
 }
@@ -518,31 +526,44 @@ export async function touchConversation(sql: Tx, tenantId: string, id: string, t
 // Admin views
 // ---------------------------------------------------------------------------
 
+export const toAdminConversation = (r: ConversationRow & { message_count?: string | number }): AdminConversation => ({
+  id: r.id,
+  assistantId: r.assistant_id,
+  widgetId: r.widget_id,
+  subjectId: r.subject_id,
+  subjectKind: r.subject_kind,
+  title: r.title,
+  messageCount: Number(r.message_count ?? 0),
+  handoffRequestedAt: isoOrNull(r.handoff_at),
+  handoffReason: r.handoff_reason ?? null,
+  handoffResolvedAt: isoOrNull(r.handoff_resolved_at ?? null),
+  mode: r.mode,
+  assignee: r.mode === "human" ? { id: r.assignee_id, name: r.assignee_name ?? "" } : null,
+  createdAt: iso(r.created_at),
+  updatedAt: iso(r.updated_at),
+});
+
 export async function adminListConversations(
   sql: Tx,
   tenantId: string,
   limit: number,
   before: string | null,
+  filter: { handoff?: "waiting" | "active" | "resolved" | "any" | undefined; assigneeId?: string | undefined } = {},
 ): Promise<AdminConversation[]> {
+  const h = filter.handoff;
   const rows = await sql<(ConversationRow & { message_count: string })[]>`
     SELECT c.*, (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
     FROM conversations c
     WHERE c.tenant_id = ${tenantId}
       ${before ? sql`AND (c.updated_at, c.id) < (SELECT updated_at, id FROM conversations WHERE id = ${before})` : sql``}
+      ${h === "any" ? sql`AND c.handoff_at IS NOT NULL` : sql``}
+      ${h === "waiting" ? sql`AND c.handoff_at IS NOT NULL AND c.handoff_resolved_at IS NULL AND c.mode = 'assistant'` : sql``}
+      ${h === "active" ? sql`AND c.mode = 'human'` : sql``}
+      ${h === "resolved" ? sql`AND c.handoff_resolved_at IS NOT NULL AND c.mode = 'assistant'` : sql``}
+      ${filter.assigneeId ? sql`AND c.assignee_id = ${filter.assigneeId}` : sql``}
     ORDER BY c.updated_at DESC, c.id DESC
     LIMIT ${limit}`;
-  return rows.map((r) => ({
-    id: r.id,
-    assistantId: r.assistant_id,
-    widgetId: r.widget_id,
-    subjectId: r.subject_id,
-    subjectKind: r.subject_kind,
-    title: r.title,
-    messageCount: Number(r.message_count),
-    handoffRequestedAt: isoOrNull(r.handoff_at),
-    createdAt: iso(r.created_at),
-    updatedAt: iso(r.updated_at),
-  }));
+  return rows.map(toAdminConversation);
 }
 
 export async function adminGetConversation(sql: Tx, tenantId: string, id: string): Promise<ConversationRow | null> {

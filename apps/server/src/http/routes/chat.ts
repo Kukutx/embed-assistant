@@ -11,7 +11,9 @@ import {
   FeedbackRequest,
   HandoffRequest,
   HandoffResult,
+  Message,
   MessageList,
+  PostMessageRequest,
   Run,
   ToolResultRequest,
   isTerminalEvent,
@@ -214,6 +216,9 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
         const existing = await findIdempotentRun(conv.id, body.idempotencyKey);
         if (existing) return c.json(existing, 202);
       }
+      if (conv.mode === "human") {
+        throw new ApiError(ErrorCode.Conflict, "a person is handling this conversation; send messages with POST /v1/conversations/{id}/messages", { mode: "human" });
+      }
 
       await s.limiter.hit(`run:sub:${sess.widgetId}:${sess.subjectId}`, s.cfg.RATE_LIMIT_RUNS_PER_MINUTE, 60);
       await s.limiter.hit(`run:ip:${c.get("clientIp")}`, s.cfg.RATE_LIMIT_RUNS_PER_HOUR_IP, 3600);
@@ -229,6 +234,8 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
           const again = await tx<RunRow[]>`SELECT * FROM runs WHERE conversation_id = ${conv.id} AND idempotency_key = ${body.idempotencyKey}`;
           if (again[0]) return { replay: again[0] };
         }
+        const [mode] = await tx<{ mode: string }[]>`SELECT mode FROM conversations WHERE id = ${conv.id}`;
+        if (mode?.mode === "human") throw new ApiError(ErrorCode.Conflict, "a person is handling this conversation", { mode: "human" });
         const active = await tx`
           SELECT 1 FROM runs WHERE conversation_id = ${conv.id} AND status IN ('queued', 'running') LIMIT 1`;
         if (active.length) {
@@ -363,7 +370,12 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
 
       return streamSSE(c, async (stream) => {
         let wake: (() => void) | null = null;
-        const unsubscribe = s.bus.onAnnounce(run.id, () => wake?.());
+        // `dirty` closes the gap between reading events and starting to wait (no lost wake-ups).
+        let dirty = false;
+        const unsubscribe = s.bus.onAnnounce(run.id, () => {
+          dirty = true;
+          wake?.();
+        });
         let closed = false;
         stream.onAbort(() => {
           closed = true;
@@ -373,6 +385,7 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
         let lastWrite = Date.now();
         try {
           while (!closed && Date.now() - started < SSE_MAX_MS) {
+            dirty = false;
             const events = await s.bus.since(run.id, last);
             for (const e of events) {
               await stream.writeSSE({ id: String(e.seq), event: e.type, data: JSON.stringify(e) });
@@ -385,6 +398,7 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
               lastWrite = Date.now();
             }
             // Wait for an announcement, with a poll fallback in case a NOTIFY was missed.
+            if (dirty) continue;
             await new Promise<void>((resolve) => {
               const t = setTimeout(resolve, SSE_POLL_MS);
               wake = () => {
@@ -494,6 +508,115 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
         },
       );
       return c.json(result);
+    },
+  );
+  route(
+    app,
+    {
+      method: "post",
+      path: "/v1/conversations/{id}/messages",
+      tag: "Chat",
+      summary: "Send a message to the person handling the conversation",
+      description:
+        "Only in `human` mode (after someone on the team joined). Stores the message without generating an AI answer; " +
+        "replies arrive on GET /v1/conversations/{id}/events. In `assistant` mode use POST /runs (this returns 409).",
+      auth: "session",
+      body: PostMessageRequest,
+      response: { status: 201, schema: Message },
+    },
+    async (c, { body }) => {
+      const sess = c.get("session");
+      const conv = await ownedConversationOr404(c, param(c, "id"));
+      if (conv.mode !== "human") throw new ApiError(ErrorCode.Conflict, "nobody from the team has joined; ask with POST /v1/conversations/{id}/runs", { mode: "assistant" });
+      await s.limiter.hit(`msg:sub:${sess.widgetId}:${sess.subjectId}`, 30, 60);
+      const assistant = await getAssistant(sql, conv.tenant_id, conv.assistant_id);
+      const msg = await sql.begin(async (tx) => {
+        const m = await insertMessage(tx, {
+          tenantId: conv.tenant_id,
+          conversationId: conv.id,
+          role: "user",
+          content: assistant?.redact_pii ? redactPii(body.content) : body.content,
+          status: "complete",
+        });
+        await touchConversation(tx, conv.tenant_id, conv.id, titleFrom(m.content));
+        return m;
+      });
+      const message = toMessage(msg);
+      await s.bus.appendConversation(conv.id, "message.created", { message });
+      void emitWebhook(sql, conv.tenant_id, "message.received", {
+        conversationId: conv.id,
+        message,
+        assignee: conv.assignee_name ? { id: conv.assignee_id, name: conv.assignee_name } : null,
+        subject: { id: sess.subjectId, kind: sess.subjectKind, name: sess.subjectName },
+      }).catch((err) => s.log.warn({ err }, "webhook enqueue failed"));
+      return c.json(message, 201);
+    },
+  );
+
+  route(
+    app,
+    {
+      method: "get",
+      path: "/v1/conversations/{id}/events",
+      tag: "Chat",
+      summary: "Stream conversation events (Server-Sent Events)",
+      description:
+        "Messages written outside a run (a person on the team, or the visitor in another tab) and conversation changes " +
+        "(`conversation.updated`, e.g. when a person joins or hands back to the assistant). Each frame has `id: <event id>`; " +
+        "reconnect with Last-Event-ID (or ?after=) to resume. Without either, the stream starts with new events only. " +
+        "The server closes the stream after a few minutes; reconnect to continue.",
+      auth: "session",
+      query: EventsQuery,
+      response: { status: 200, description: "text/event-stream of ConversationEvent", contentType: "text/event-stream" },
+    },
+    async (c, { query }) => {
+      const conv = await ownedConversationOr404(c, param(c, "id"));
+      const header = Number.parseInt(c.req.header("last-event-id") ?? "", 10);
+      let last = Number.isFinite(header) && header >= 0 ? header : (query.after ?? (await s.bus.lastConversationEventId(conv.id)));
+      c.header("Cache-Control", "no-store");
+      c.header("X-Accel-Buffering", "no");
+      return streamSSE(c, async (stream) => {
+        let wake: (() => void) | null = null;
+        let dirty = false;
+        const unsubscribe = s.bus.onConversation(conv.id, () => {
+          dirty = true;
+          wake?.();
+        });
+        let closed = false;
+        stream.onAbort(() => {
+          closed = true;
+          wake?.();
+        });
+        const started = Date.now();
+        let lastWrite = Date.now();
+        try {
+          // Tell the client where it starts, so a reconnect can resume from here.
+          await stream.write(`: ready\nid: ${last}\n\n`);
+          while (!closed && Date.now() - started < SSE_MAX_MS) {
+            dirty = false;
+            for (const e of await s.bus.conversationSince(conv.id, last)) {
+              await stream.writeSSE({ id: String(e.id), event: e.type, data: JSON.stringify(e) });
+              last = e.id;
+              lastWrite = Date.now();
+            }
+            if (Date.now() - lastWrite >= SSE_KEEPALIVE_MS) {
+              await stream.write(": keepalive\n\n");
+              lastWrite = Date.now();
+            }
+            if (dirty) continue;
+            await new Promise<void>((resolve) => {
+              const t = setTimeout(resolve, SSE_POLL_MS * 2);
+              wake = () => {
+                clearTimeout(t);
+                resolve();
+              };
+            });
+            wake = null;
+          }
+        } finally {
+          unsubscribe();
+        }
+      });
     },
   );
 }

@@ -164,6 +164,8 @@ export const Message = z.object({
   feedback: Feedback.nullable(),
   /** Suggested follow-up questions for an assistant answer (may arrive later via `message.suggestions`). */
   suggestions: z.array(z.string()).optional(),
+  /** Set when a person on the team wrote this assistant-side message (absent or null = the AI assistant). */
+  author: z.object({ type: z.literal("human"), name: z.string() }).nullable().optional(),
   createdAt: Timestamp,
 });
 export type Message = z.infer<typeof Message>;
@@ -173,6 +175,13 @@ export const Conversation = z.object({
   title: z.string().nullable(),
   /** Set once a human handoff was requested in this conversation. */
   handoffRequestedAt: Timestamp.nullable().optional(),
+  /**
+   * `assistant`: questions go to POST /runs. `human`: a person on the team is handling the
+   * conversation; send messages with POST /messages and follow GET /events for replies.
+   */
+  mode: z.enum(["assistant", "human"]).optional(),
+  /** Display name of the person handling the conversation in `human` mode. */
+  agentName: z.string().nullable().optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });
@@ -267,6 +276,25 @@ export const HandoffRequest = z.object({
   reason: z.string().max(1000).optional(),
 });
 export type HandoffRequest = z.infer<typeof HandoffRequest>;
+
+/** A visitor message while a person handles the conversation (no AI answer is generated). */
+export const PostMessageRequest = z.object({
+  content: z.string().trim().min(1).max(4000),
+});
+export type PostMessageRequest = z.infer<typeof PostMessageRequest>;
+
+/**
+ * Conversation events (Server-Sent Events on GET /v1/conversations/{id}/events):
+ * messages written outside a run (by the visitor in another tab, or by a person
+ * on the team) and changes to the conversation such as a person joining.
+ * Each frame has `id: <event id>`; reconnect with Last-Event-ID to resume.
+ */
+export const ConversationEvent = z.discriminatedUnion("type", [
+  z.object({ id: z.number().int().positive(), conversationId: Id, ts: Timestamp, type: z.literal("message.created"), data: z.object({ message: Message }) }),
+  z.object({ id: z.number().int().positive(), conversationId: Id, ts: Timestamp, type: z.literal("conversation.updated"), data: z.object({ conversation: Conversation }) }),
+]);
+export type ConversationEvent = z.infer<typeof ConversationEvent>;
+export type ConversationEventType = ConversationEvent["type"];
 
 export const HandoffResult = z.object({
   /** Text to show the visitor (configured per assistant). */

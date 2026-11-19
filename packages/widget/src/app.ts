@@ -2,7 +2,7 @@
  * The chat UI, loaded lazily by loader.ts. Plain DOM + Shadow DOM: no framework,
  * so it works on any page and never conflicts with the host's own libraries.
  */
-import type { Citation, ClientToolDef, Message, PageContext, PublicWidgetConfig, RunEvent } from "@embed-assistant/protocol";
+import type { Citation, ClientToolDef, ConversationEvent, Message, PageContext, PublicWidgetConfig, RunEvent } from "@embed-assistant/protocol";
 import { ApiError, Client } from "./client.js";
 import { stringsFor, type Strings } from "./i18n.js";
 import { plainText, renderMarkdown, safeUrl } from "./markdown.js";
@@ -74,6 +74,8 @@ interface ViewMessage {
   tools: ToolChip[];
   confirm: { runId: string; callId: string; title: string; input: Record<string, unknown>; busy: boolean } | null;
   handoff: { message: string; url: string | null } | null;
+  /** Name of the person on the team who wrote this message (null = the AI assistant). */
+  author?: string | null;
 }
 
 const blank = (): Pick<ViewMessage, "suggestions" | "tools" | "confirm" | "handoff"> => ({ suggestions: [], tools: [], confirm: null, handoff: null });
@@ -103,6 +105,10 @@ class App {
   private conversationId: string | null;
   private messages: ViewMessage[] = [];
   private running: { runId: string | null; abort: AbortController; vm: ViewMessage; cancelTimer?: number } | null = null;
+  /** `human` while a person on the team handles the conversation. */
+  private mode: "assistant" | "human" = "assistant";
+  private agentName: string | null = null;
+  private follow: { id: string; abort: AbortController } | null = null;
   private view: "chat" | "history" = "chat";
   private opened = false;
   private expanded = false;
@@ -457,9 +463,11 @@ class App {
   private async loadConversation(id: string) {
     if (this.running) return;
     try {
-      const page = await this.client.listMessages(id);
+      const [page, conv] = await Promise.all([this.client.listMessages(id), this.client.getConversation(id)]);
       this.setConversation(id);
       this.messages = page.items.map((m) => this.fromMessage(m));
+      this.setMode(conv.mode ?? "assistant", conv.agentName ?? null, false);
+      if (conv.handoffRequestedAt || conv.mode === "human") this.startFollowing(id);
       // An answer still streaming elsewhere (e.g. after a reload) shows as interrupted; refresh to see the final text.
       this.renderChat();
     } catch (err) {
@@ -483,7 +491,89 @@ class App {
       error: null,
       ...blank(),
       suggestions: m.suggestions ?? [],
+      author: m.author?.name ?? null,
     };
+  }
+
+  // ---------------------------------------------------------------- a person on the team
+  /** Listen for a person joining and their replies (after a handoff). */
+  private startFollowing(id: string) {
+    if (this.follow?.id === id) return;
+    this.follow?.abort.abort();
+    const abort = new AbortController();
+    this.follow = { id, abort };
+    void this.client.followConversation(id, (e) => this.onConversationEvent(id, e), abort.signal);
+  }
+
+  private stopFollowing() {
+    this.follow?.abort.abort();
+    this.follow = null;
+  }
+
+  private onConversationEvent(id: string, e: ConversationEvent) {
+    if (id !== this.conversationId) return;
+    if (e.type === "conversation.updated") {
+      this.setMode(e.data.conversation.mode ?? "assistant", e.data.conversation.agentName ?? null, true);
+      return;
+    }
+    const m = e.data.message;
+    if (this.messages.some((x) => x.id === m.id)) return;
+    // Our own message, echoed before the send request returned its id.
+    const pending = m.role === "user" ? this.messages.find((x) => x.role === "user" && x.id === null && x.content === m.content) : undefined;
+    if (pending) {
+      pending.id = m.id;
+      return;
+    }
+    this.append(this.fromMessage(m));
+    if (m.role === "assistant") {
+      this.announce(m.author ? `${m.author.name}: ${m.content}` : m.content);
+      this.ctx.emit("message", { conversationId: id, messageId: m.id, content: m.content, citations: m.citations, ...(m.author ? { author: m.author } : {}) });
+    }
+  }
+
+  private setMode(mode: "assistant" | "human", agentName: string | null, notify: boolean) {
+    const changed = mode !== this.mode || (mode === "human" && agentName !== this.agentName);
+    this.mode = mode;
+    this.agentName = agentName;
+    if (this.built) {
+      this.input.placeholder = mode === "human" && agentName ? this.t.messagePerson.replace("{name}", agentName) : this.cfg?.assistant.placeholder || this.t.placeholder;
+      this.input.setAttribute("aria-label", this.input.placeholder);
+    }
+    if (changed && notify) {
+      const text = mode === "human" ? this.t.agentJoined.replace("{name}", agentName ?? "") : this.t.backToAssistant;
+      this.append({ key: newKey(), id: null, role: "notice", content: text, citations: [], status: "complete", feedback: null, phase: null, error: null, ...blank() });
+      this.announce(text);
+    }
+  }
+
+  /** In human mode messages go to the person; no AI answer is generated. */
+  private async sendToPerson(content: string): Promise<void> {
+    const user: ViewMessage = { key: newKey(), id: null, role: "user", content, citations: [], status: "complete", feedback: null, phase: null, error: null, ...blank() };
+    this.append(user);
+    try {
+      const m = await this.client.sendMessage(this.conversationId!, content);
+      // The echo on the event stream may have arrived first and appended a copy.
+      const echo = this.messages.find((x) => x !== user && x.id === m.id);
+      if (echo) {
+        this.messages = this.messages.filter((x) => x !== echo);
+        this.msgEls.get(echo)?.remove();
+      }
+      user.id = m.id;
+      if (m.content !== content) {
+        user.content = m.content;
+        this.update(user);
+      }
+    } catch (err) {
+      this.messages = this.messages.filter((x) => x !== user);
+      this.msgEls.get(user)?.remove();
+      if (err instanceof ApiError && err.status === 409) {
+        // The person handed the conversation back in the meantime.
+        this.setMode("assistant", null, true);
+        return this.send(content);
+      }
+      this.showBanner(this.errorText(err));
+      this.input.value = content;
+    }
   }
 
   private setConversation(id: string | null) {
@@ -494,6 +584,8 @@ class App {
   private resetChat(focus = true) {
     this.running?.abort.abort();
     this.running = null;
+    this.stopFollowing();
+    this.setMode("assistant", null, false);
     this.setConversation(null);
     this.messages = [];
     if (this.view === "chat") this.renderChat();
@@ -523,8 +615,10 @@ class App {
     }
     if (vm.role === "notice") {
       if (vm.handoff) wrap.appendChild(this.handoffBox(vm.handoff));
+      else if (vm.content) wrap.appendChild(h("div", { class: "ea-system", text: vm.content }));
       return;
     }
+    if (vm.author) wrap.appendChild(h("div", { class: "ea-author" }, h("span", { class: "ea-author-dot" }), h("span", { text: vm.author })));
     const t = this.t;
     const streaming = vm.status === "streaming";
     if (vm.tools.length) {
@@ -586,7 +680,7 @@ class App {
     }
 
     if (vm.handoff) wrap.appendChild(this.handoffBox(vm.handoff));
-    if (vm.status === "complete" && vm.content) wrap.appendChild(this.actions(vm));
+    if (vm.status === "complete" && vm.content && !vm.author) wrap.appendChild(this.actions(vm));
     if (vm.status === "complete" && vm.suggestions.length && !this.running && this.messages.at(-1) === vm) {
       const box = h("div", { class: "ea-followups" }, h("div", { class: "ea-followups-label", text: t.related }));
       for (const q of vm.suggestions) {
@@ -790,10 +884,11 @@ class App {
     return Object.keys(ctx).length ? ctx : undefined;
   }
 
-  private async send(text: string, isRetry = false) {
+  private async send(text: string, isRetry = false): Promise<void> {
     if (this.running) return;
     if (this.view !== "chat") this.renderChat();
     const content = text.slice(0, 4000);
+    if (this.mode === "human" && this.conversationId) return this.sendToPerson(content);
     const user: ViewMessage = { key: newKey(), id: null, role: "user", content, citations: [], status: "complete", feedback: null, phase: null, error: null, ...blank() };
     if (!isRetry || this.messages.at(-1)?.content !== content) this.append(user);
     const vm: ViewMessage = { key: newKey(), id: null, role: "assistant", content: "", citations: [], status: "streaming", feedback: null, phase: "searching", error: null, ...blank() };
@@ -814,6 +909,19 @@ class App {
       try {
         created = await this.client.createRun(conversationId, content, this.pageContext(), key, this.toolDefs());
       } catch (err) {
+        if (err instanceof ApiError && err.status === 409 && (err.details as { mode?: string } | null)?.mode === "human") {
+          // A person took over in the meantime: deliver the message to them instead.
+          const conv = await this.client.getConversation(conversationId);
+          this.running = null;
+          for (const x of [user, vm]) {
+            this.messages = this.messages.filter((m) => m !== x);
+            this.msgEls.get(x)?.remove();
+          }
+          this.syncSendButton();
+          this.setMode("human", conv.agentName ?? null, true);
+          this.startFollowing(conversationId);
+          return this.sendToPerson(content);
+        }
         if (!(err instanceof ApiError && err.status === 404)) throw err;
         // Conversation was deleted elsewhere: start a new one transparently.
         conversationId = (await this.client.createConversation()).id;
@@ -909,6 +1017,7 @@ class App {
       case "handoff.requested":
         vm.handoff = { message: e.data.message, url: e.data.url };
         this.ctx.emit("handoff", { conversationId: this.conversationId, trigger: "assistant", ...vm.handoff });
+        if (this.conversationId) this.startFollowing(this.conversationId);
         break;
     }
     this.update(vm);
@@ -966,6 +1075,7 @@ class App {
       this.append(notice);
       this.announce(r.message);
       this.ctx.emit("handoff", { conversationId, trigger: "visitor", message: r.message, url: r.url });
+      this.startFollowing(conversationId);
     } catch (err) {
       this.showBanner(err instanceof ApiError && err.code === "rate_limited" ? this.errorText(err) : this.t.handoffFailed);
     } finally {
