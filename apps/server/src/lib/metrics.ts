@@ -58,7 +58,8 @@ export const metrics = {
   http: new Counter("ea_http_requests_total", "HTTP requests by route and status"),
   tools: new Counter("ea_tool_calls_total", "Server-side tool calls by tool and status"),
   webhooks: new Counter("ea_webhook_deliveries_total", "Webhook delivery attempts by status"),
+  mcp: new Counter("ea_mcp_tool_calls_total", "MCP server tool calls by tool and status"),
   render(): string {
-    return [this.runs, this.failovers, this.tokens, this.ttft, this.duration, this.http, this.tools, this.webhooks].map((m) => m.render()).join("\n\n") + "\n";
+    return [this.runs, this.failovers, this.tokens, this.ttft, this.duration, this.http, this.tools, this.webhooks, this.mcp].map((m) => m.render()).join("\n\n") + "\n";
   },
 };

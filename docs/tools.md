@@ -12,6 +12,7 @@ Each run is a short agent loop (at most 6 model steps). On every step the model 
 | HTTP actions | Your API, called by the server | Attaching actions to the assistant (`actionIds`) |
 | Page tools | The visitor's browser | `EmbedAssistant.registerTool(...)` and the assistant setting *page tools* |
 | `handoff_to_human` | Server (records the request, sends the webhook) | Assistant setting *handoff* |
+| Remote MCP tools (`<server>__<tool>`) | A remote MCP server | Attaching MCP servers to the assistant (`mcpServerIds`), see [mcp.md](mcp.md) |
 
 Tool arguments are validated against the tool's JSON Schema before anything runs; invalid calls go back to the model as errors. Tool calls appear in the event stream (`tool.started`, `tool.completed`) so any UI can show progress. Tool calling works with Claude and with any OpenAI-compatible model that supports function calling. The offline extractive mode never calls tools.
 

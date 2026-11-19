@@ -9,6 +9,8 @@ import type { AppEnv, Services } from "./env.js";
 import { adminAuth, publicCors, requestContext, sessionAuth, WidgetCache } from "./middleware.js";
 import { adminRoutes } from "./routes/admin.js";
 import { adminAgentRoutes } from "./routes/adminAgent.js";
+import { mcpRoutes } from "../mcp/server.js";
+import { adminMcpRoutes } from "./routes/adminMcp.js";
 import { chatRoutes } from "./routes/chat.js";
 import { opsRoutes } from "./routes/ops.js";
 import { publicRoutes } from "./routes/public.js";
@@ -63,6 +65,7 @@ export function createApp(s: Services): Hono<AppEnv> {
   }
   // Bound request bodies before anything parses them.
   app.use("/v1/admin/*", bodyLimit({ maxSize: 4 * 1024 * 1024, onError: tooLarge }));
+  app.use("/mcp", bodyLimit({ maxSize: 256 * 1024, onError: tooLarge }));
   app.use("/v1/*", async (c, next) => (c.req.path.startsWith("/v1/admin/") ? next() : publicBodyLimit(c, next)));
   const chatAuth = sessionAuth(s, widgets);
   for (const p of ["/v1/conversations/*", "/v1/runs/*", "/v1/messages/*"]) {
@@ -75,6 +78,8 @@ export function createApp(s: Services): Hono<AppEnv> {
   chatRoutes(app, s);
   adminRoutes(app, s, widgets);
   adminAgentRoutes(app, s);
+  adminMcpRoutes(app, s);
+  mcpRoutes(app, s);
 
   if (s.cfg.SERVE_WIDGET) {
     const widgetDir = resolveWidgetDir(s.cfg.WIDGET_DIST_DIR);

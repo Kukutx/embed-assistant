@@ -10,7 +10,8 @@
 | XSS through model output | The widget renders Markdown by building DOM nodes; it never assigns model text to `innerHTML`. Links are limited to http(s) and mailto and open with `noopener noreferrer`. |
 | SSRF through crawling | URLs are resolved and every IP is checked against private, loopback, link-local and metadata ranges at connect time (DNS rebinding safe), redirects are re-validated, bodies are size and time limited. |
 | Forged action calls or webhooks | Action requests carry an `EA-Signature` HMAC over time, method, URL, forwarded user id and body; webhooks are signed per [Standard Webhooks](https://www.standardwebhooks.com/). Secret action headers are encrypted at rest and never returned. |
-| SSRF through actions and webhooks | Same connect-time IP checks as crawling; non-GET requests never follow redirects. |
+| MCP access | `/mcp` needs an API key with the `mcp` (or `admin`) scope; its access tags filter knowledge in SQL like a visitor's groups; browser requests from other origins are rejected (DNS-rebinding protection); per-key rate limits. Remote MCP tools ask the visitor before each call unless marked read-only, can be limited to an allowlist, and their headers are encrypted. |
+| SSRF through actions, MCP servers and webhooks | Same connect-time IP checks as crawling; non-GET requests never follow redirects. |
 | Personal data in transcripts | Optional masking of e-mails, phone, card (Luhn) and IBAN (mod-97) numbers before storage; retention policy; permanent deletion by visitors and per-subject erasure by admins. |
 | Cost abuse | Rate limits per visitor and per IP, per-widget daily token budgets, input length limits, one active run per conversation. |
 | Admin key theft | Keys are scoped (`admin` or `mcp`), stored as SHA-256 hashes, shown once, sent only as bearer tokens; admin API has no CORS. The console keeps the key in tab storage only and ships with a strict CSP. |

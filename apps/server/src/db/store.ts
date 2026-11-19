@@ -38,6 +38,7 @@ export interface AssistantRow {
   source_ids: string[];
   grounded_only: boolean;
   action_ids: string[];
+  mcp_server_ids: string[];
   handoff: HandoffConfig;
   follow_ups: boolean;
   query_rewrite: boolean;
@@ -135,6 +136,7 @@ export const toAssistant = (r: AssistantRow): Assistant => ({
   sourceIds: r.source_ids,
   groundedOnly: r.grounded_only,
   actionIds: r.action_ids,
+  mcpServerIds: r.mcp_server_ids,
   handoff: r.handoff,
   followUps: r.follow_ups,
   queryRewrite: r.query_rewrite,
@@ -257,11 +259,11 @@ export async function createAssistant(sql: Tx, tenantId: string, input: Assistan
   const id = newId("ast");
   const rows = await sql<AssistantRow[]>`
     INSERT INTO assistants (id, tenant_id, name, instructions, model_alias, greeting, suggestions,
-                            placeholder, disclaimer, source_ids, grounded_only, action_ids, handoff,
+                            placeholder, disclaimer, source_ids, grounded_only, action_ids, mcp_server_ids, handoff,
                             follow_ups, query_rewrite, agentic_search, client_tools, redact_pii)
     VALUES (${id}, ${tenantId}, ${input.name}, ${input.instructions}, ${input.modelAlias}, ${input.greeting},
             ${sql.json(input.suggestions)}, ${input.placeholder}, ${input.disclaimer},
-            ${sql.array(input.sourceIds)}, ${input.groundedOnly}, ${sql.array(input.actionIds)},
+            ${sql.array(input.sourceIds)}, ${input.groundedOnly}, ${sql.array(input.actionIds)}, ${sql.array(input.mcpServerIds)},
             ${sql.json(input.handoff as never)}, ${input.followUps}, ${input.queryRewrite}, ${input.agenticSearch},
             ${input.clientTools}, ${input.redactPii})
     RETURNING *`;
@@ -287,6 +289,7 @@ export async function updateAssistant(
     sourceIds: patch.sourceIds ?? current.source_ids,
     groundedOnly: patch.groundedOnly ?? current.grounded_only,
     actionIds: patch.actionIds ?? current.action_ids,
+    mcpServerIds: patch.mcpServerIds ?? current.mcp_server_ids,
     handoff: patch.handoff ?? current.handoff,
     followUps: patch.followUps ?? current.follow_ups,
     queryRewrite: patch.queryRewrite ?? current.query_rewrite,
@@ -300,7 +303,7 @@ export async function updateAssistant(
       greeting = ${next.greeting}, suggestions = ${sql.json(next.suggestions)},
       placeholder = ${next.placeholder}, disclaimer = ${next.disclaimer},
       source_ids = ${sql.array(next.sourceIds)}, grounded_only = ${next.groundedOnly},
-      action_ids = ${sql.array(next.actionIds)}, handoff = ${sql.json(next.handoff as never)},
+      action_ids = ${sql.array(next.actionIds)}, mcp_server_ids = ${sql.array(next.mcpServerIds)}, handoff = ${sql.json(next.handoff as never)},
       follow_ups = ${next.followUps}, query_rewrite = ${next.queryRewrite}, agentic_search = ${next.agenticSearch},
       client_tools = ${next.clientTools}, redact_pii = ${next.redactPii},
       version = version + 1, updated_at = now()

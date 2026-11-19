@@ -12,11 +12,11 @@ export interface RunTool {
   def: ToolDef;
   /** Label shown to the visitor while it runs. */
   title: string;
-  kind: "builtin" | "action" | "client";
+  kind: "builtin" | "action" | "client" | "mcp";
   /** Ask the visitor before running. */
   confirm: boolean;
   /** Server-side implementation (absent for client tools). */
-  run?: (input: Record<string, unknown>) => Promise<ToolOutput>;
+  run?: (input: Record<string, unknown>, signal: AbortSignal) => Promise<ToolOutput>;
 }
 
 export const SEARCH_TOOL = "search_knowledge";

@@ -10,6 +10,7 @@ It is built to be generic and boring to operate:
 - **Knows who is asking, safely.** Your backend signs a short JWT; the assistant only searches knowledge that user may read. Filtering happens in SQL before the model sees anything.
 - **One dependency.** Node.js and Postgres (with pgvector). No Redis, no queue service. Multi-instance safe.
 - **Takes actions, not just answers.** Call your HTTP APIs as tools (signed requests, optional visitor confirmation), run functions in the visitor's page (`EmbedAssistant.registerTool`), and hand the conversation to a person with a summary. See [docs/tools.md](docs/tools.md).
+- **Speaks MCP both ways.** Other AI tools (IDE agents, desktop assistants) can search your knowledge and get grounded answers through `/mcp`; assistants can use the tools of any remote MCP server. See [docs/mcp.md](docs/mcp.md).
 - **Fits into your systems.** [Standard Webhooks](https://www.standardwebhooks.com/) for conversations, answers, feedback, handoffs and syncs; scoped API keys; NDJSON export.
 - **Learns where it falls short.** Insights show top questions, knowledge gaps, unhelpful answers, handoffs and tool usage, so you know which docs to write next.
 - **Privacy built in.** Optional masking of e-mails, phone, card and IBAN numbers before storage, retention policies, and per-visitor erasure.
@@ -95,7 +96,9 @@ Anonymous visitors only see knowledge tagged `public`. To recognise a user, your
 - **Agentic search**: the model can search the knowledge base again with better queries before answering.
 - **Human handoff**: a "talk to a person" button and a model tool. Sends the transcript and a summary to your help desk via webhook and/or opens your own support URL.
 
-Full guide with verification code: [docs/tools.md](docs/tools.md).
+- **MCP servers**: connect remote MCP servers and pick which tools an assistant may use.
+
+Full guide with verification code: [docs/tools.md](docs/tools.md). MCP: [docs/mcp.md](docs/mcp.md).
 
 ## Models
 
@@ -104,7 +107,8 @@ With environment variables only, aliases are built for you (`standard`, `fast`, 
 ## API
 
 - Public chat API: sessions, conversations, runs, SSE events with `Last-Event-ID` resume, cancel, feedback.
-- Admin API: assistants, widgets, knowledge, actions, webhooks, conversations (+ export, erasure), insights, usage, models, API keys, settings.
+- MCP server: `POST /mcp` (knowledge search, grounded answers, documents).
+- Admin API: assistants, widgets, knowledge, actions, MCP servers, webhooks, conversations (+ export, erasure), insights, usage, models, API keys, settings.
 - Machine-readable: `GET /openapi.json`. Overview: [docs/api.md](docs/api.md).
 
 ## Architecture

@@ -115,6 +115,7 @@ const VIEWS = {
   widgets: { title: "Widgets", render: widgets },
   knowledge: { title: "Knowledge", render: knowledge },
   actions: { title: "Actions", render: actions },
+  mcp: { title: "MCP servers", render: mcpServers },
   conversations: { title: "Conversations", render: conversations },
   webhooks: { title: "Webhooks", render: webhooks },
   settings: { title: "Settings", render: settings },
@@ -164,8 +165,14 @@ async function overview(main) {
 }
 
 async function assistants(main) {
-  const [list, sources, models, actionList] = await Promise.all([api("GET", "/assistants"), api("GET", "/sources"), api("GET", "/models"), api("GET", "/actions")]);
-  const edit = (a) => assistantForm(a, sources, models, actionList, () => route());
+  const [list, sources, models, actionList, mcpList] = await Promise.all([
+    api("GET", "/assistants"),
+    api("GET", "/sources"),
+    api("GET", "/models"),
+    api("GET", "/actions"),
+    api("GET", "/mcp-servers"),
+  ]);
+  const edit = (a) => assistantForm(a, sources, models, actionList, mcpList, () => route());
   main.append(
     h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn primary", onclick: () => edit(null), text: "New assistant" })),
     h(
@@ -211,7 +218,7 @@ async function assistants(main) {
   );
 }
 
-function assistantForm(a, sources, models, actionList, done) {
+function assistantForm(a, sources, models, actionList, mcpList, done) {
   const f = {
     name: h("input", { value: a?.name ?? "", required: true, maxlength: 100 }),
     instructions: h("textarea", { value: a?.instructions ?? "", rows: 6, placeholder: "Tone, scope, what to do when unsure…" }),
@@ -235,6 +242,10 @@ function assistantForm(a, sources, models, actionList, done) {
     const c = h("input", { type: "checkbox", value: x.id, checked: a?.actionIds?.includes(x.id) });
     return h("label", { class: "check" }, c, `${x.title} `, h("code", { text: x.name }), x.confirm ? h("span", { class: "badge warn", text: "asks first" }) : null, x.enabled ? null : h("span", { class: "badge", text: "disabled" }));
   });
+  const mcpChecks = mcpList.map((x) => {
+    const c = h("input", { type: "checkbox", value: x.id, checked: a?.mcpServerIds?.includes(x.id) });
+    return h("label", { class: "check" }, c, `${x.title} `, h("span", { class: "muted small", text: `${x.tools.length} tools` }), x.lastError ? h("span", { class: "badge bad", text: "error" }) : null, x.enabled ? null : h("span", { class: "badge", text: "disabled" }));
+  });
   f.modelAlias.value = a?.modelAlias ?? "standard";
   const sourceChecks = sources.map((s) => {
     const c = h("input", { type: "checkbox", value: s.id, checked: a?.sourceIds.includes(s.id) });
@@ -256,6 +267,7 @@ function assistantForm(a, sources, models, actionList, done) {
           disclaimer: f.disclaimer.value.trim() || null,
           sourceIds: sourceChecks.map((l) => l.querySelector("input")).filter((c) => c.checked).map((c) => c.value),
           groundedOnly: f.groundedOnly.checked,
+          mcpServerIds: mcpChecks.map((l) => l.querySelector("input")).filter((c) => c.checked).map((c) => c.value),
           actionIds: actionChecks.map((l) => l.querySelector("input")).filter((c) => c.checked).map((c) => c.value),
           followUps: f.followUps.checked,
           queryRewrite: f.queryRewrite.checked,
@@ -286,6 +298,7 @@ function assistantForm(a, sources, models, actionList, done) {
     h("fieldset", { class: "box" }, h("legend", { text: "Knowledge sources" }), sourceChecks.length ? sourceChecks : h("span", { class: "muted", text: "No sources yet." })),
     h("label", { class: "check" }, f.groundedOnly, "Answer only from knowledge sources (recommended for support)"),
     h("fieldset", { class: "box" }, h("legend", { text: "Actions (tools)" }), actionChecks.length ? actionChecks : h("span", { class: "muted", text: "No actions yet. Create them under Actions." })),
+    h("fieldset", { class: "box" }, h("legend", { text: "MCP servers" }), mcpChecks.length ? mcpChecks : h("span", { class: "muted", text: "None connected. Add them under MCP servers." })),
     h(
       "fieldset",
       { class: "box" },
@@ -863,6 +876,174 @@ function actionTest(x) {
         }
       },
     },
+    field("Arguments (JSON)", args),
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Call" })),
+    out,
+  );
+  modal(`Test ${x.title}`, form, { wide: true });
+}
+
+// ------------------------------------------------------------------ MCP servers
+async function mcpServers(main) {
+  const list = await api("GET", "/mcp-servers");
+  const endpoint = `${location.origin}/mcp`;
+  main.append(
+    h(
+      "div",
+      { class: "card" },
+      h("h2", { text: "Use this knowledge from other AI tools" }),
+      h("p", { class: "muted", text: "This server is itself an MCP server (Streamable HTTP, protocol 2026-07-28 and 2025-xx). Create an API key with the mcp scope under Settings, then add it to your MCP client:" }),
+      h("pre", { text: JSON.stringify({ mcpServers: { "embed-assistant": { type: "http", url: endpoint, headers: { Authorization: "Bearer ea_mcp_…" } } } }, null, 2) }),
+      h("p", { class: "small muted", text: "Tools: search_knowledge, ask, get_document, list_sources. The key's access tags decide which knowledge it can read." }),
+    ),
+    h("h2", { text: "Connected MCP servers" }),
+    h("p", { class: "muted", text: "Give assistants the tools of remote MCP servers (ticketing, CRM, booking, internal APIs). Attach a server to an assistant under Assistants." }),
+    h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn primary", onclick: () => mcpForm(null), text: "Connect MCP server" })),
+    h(
+      "div",
+      { class: "card" },
+      list.length
+        ? h(
+            "table",
+            {},
+            h("thead", {}, h("tr", {}, ["Server", "Tools", "Status", ""].map((t) => h("th", { text: t })))),
+            h(
+              "tbody",
+              {},
+              list.map((x) =>
+                h(
+                  "tr",
+                  {},
+                  h("td", {}, h("strong", { text: x.title }), h("div", {}, h("code", { text: x.name })), h("div", { class: "small muted mono", text: x.url })),
+                  h(
+                    "td",
+                    { class: "small" },
+                    x.tools.length
+                      ? x.tools.map((t) => {
+                          const off = x.allowedTools && !x.allowedTools.includes(t.name);
+                          return h("div", { class: off ? "muted" : "" }, h("code", { text: t.name }), t.readOnly ? h("span", { class: "badge", text: "read-only" }) : null, off ? " (hidden)" : "");
+                        })
+                      : h("span", { class: "muted", text: "—" }),
+                  ),
+                  h(
+                    "td",
+                    { class: "small" },
+                    x.lastError ? h("div", { class: "bad clamp", text: x.lastError }) : h("span", { class: "badge ok", text: x.protocolVersion ?? "ok" }),
+                    x.enabled ? null : h("span", { class: "badge", text: "disabled" }),
+                    x.confirm ? h("span", { class: "badge warn", text: "asks first" }) : null,
+                    x.requireUser ? h("span", { class: "badge", text: "signed-in only" }) : null,
+                    h("div", { class: "muted", text: x.refreshedAt ? `Checked ${fmtDate(x.refreshedAt)}` : "" }),
+                  ),
+                  h(
+                    "td",
+                    { class: "row" },
+                    h("button", { class: "btn", onclick: () => mcpForm(x), text: "Edit" }),
+                    h("button", {
+                      class: "btn",
+                      text: "Refresh",
+                      onclick: async (e) => {
+                        e.target.disabled = true;
+                        await api("POST", `/mcp-servers/${x.id}/refresh`).finally(() => route());
+                      },
+                    }),
+                    h("button", { class: "btn", disabled: !x.tools.length, onclick: () => mcpTest(x), text: "Test" }),
+                    h("button", {
+                      class: "btn danger",
+                      text: "Remove",
+                      onclick: async () => {
+                        if (!confirm(`Remove MCP server "${x.title}"?`)) return;
+                        await api("DELETE", `/mcp-servers/${x.id}`);
+                        route();
+                      },
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          )
+        : h("p", { class: "muted", text: "No MCP servers connected." }),
+    ),
+  );
+}
+
+function mcpForm(x) {
+  const f = {
+    name: h("input", { value: x?.name ?? "", required: true, pattern: "[a-z][a-z0-9_]{0,23}", placeholder: "helpdesk" }),
+    title: h("input", { value: x?.title ?? "", required: true, placeholder: "Helpdesk" }),
+    url: h("input", { value: x?.url ?? "", required: true, placeholder: "https://mcp.example.com/mcp" }),
+    headers: h("textarea", { class: "mono", rows: 3, value: "", placeholder: x?.headerNames?.length ? `Configured: ${x.headerNames.join(", ")}. Leave empty to keep.` : '{ "Authorization": "Bearer …" }' }),
+    allowedTools: h("input", { value: x?.allowedTools?.join(", ") ?? "", placeholder: "All tools" }),
+    confirm: h("input", { type: "checkbox", checked: x?.confirm ?? true }),
+    requireUser: h("input", { type: "checkbox", checked: x?.requireUser ?? false }),
+    enabled: h("input", { type: "checkbox", checked: x?.enabled ?? true }),
+  };
+  const msg = h("div");
+  const form = h(
+    "form",
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        try {
+          const allowed = f.allowedTools.value.split(",").map((t) => t.trim()).filter(Boolean);
+          const body = {
+            name: f.name.value.trim(),
+            title: f.title.value.trim(),
+            url: f.url.value.trim(),
+            allowedTools: allowed.length ? allowed : null,
+            confirm: f.confirm.checked,
+            requireUser: f.requireUser.checked,
+            enabled: f.enabled.checked,
+          };
+          if (f.headers.value.trim()) body.headers = JSON.parse(f.headers.value);
+          const saved = await api(x ? "PATCH" : "POST", x ? `/mcp-servers/${x.id}` : "/mcp-servers", body);
+          if (saved.lastError) {
+            msg.replaceChildren(notice(`Saved, but connecting failed: ${saved.lastError}`, true));
+            x = saved;
+            return;
+          }
+          dlg.close();
+          route();
+        } catch (err) {
+          msg.replaceChildren(notice(err instanceof SyntaxError ? `Invalid JSON: ${err.message}` : errorText(err), true));
+        }
+      },
+    },
+    h("div", { class: "two" }, field("Name", f.name, "Prefix of its tools: name__tool."), field("Label", f.title)),
+    field("URL (Streamable HTTP endpoint)", f.url),
+    field("Headers (JSON, stored encrypted)", f.headers, "For example an API key or bearer token for the server."),
+    field("Allowed tools", f.allowedTools, "Comma-separated tool names. Empty exposes every tool the server lists."),
+    h("label", { class: "check" }, f.confirm, "Ask the visitor before each call (tools the server marks read-only run directly)"),
+    h("label", { class: "check" }, f.requireUser, "Signed-in users only"),
+    h("label", { class: "check" }, f.enabled, "Enabled"),
+    msg,
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: x ? "Save" : "Connect" })),
+  );
+  const dlg = modal(x ? `Edit ${x.title}` : "Connect MCP server", form, { wide: true });
+}
+
+function mcpTest(x) {
+  const tool = h("select", {}, x.tools.map((t) => h("option", { value: t.name, text: t.name })));
+  const args = h("textarea", { class: "mono", rows: 5, value: "{}" });
+  const schema = h("pre", { class: "small", style: "max-height:200px" });
+  const showSchema = () => (schema.textContent = JSON.stringify(x.tools.find((t) => t.name === tool.value)?.inputSchema ?? {}, null, 2));
+  tool.addEventListener("change", showSchema);
+  showSchema();
+  const out = h("div");
+  const form = h(
+    "form",
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        try {
+          const r = await api("POST", `/mcp-servers/${x.id}/test`, { tool: tool.value, arguments: JSON.parse(args.value || "{}") });
+          out.replaceChildren(h("p", {}, h("span", { class: `badge ${r.isError ? "bad" : "ok"}`, text: r.isError ? "error" : "ok" }), ` ${r.durationMs} ms`), h("pre", { text: r.output }));
+        } catch (err) {
+          out.replaceChildren(notice(err instanceof SyntaxError ? `Invalid JSON: ${err.message}` : errorText(err), true));
+        }
+      },
+    },
+    field("Tool", tool),
+    schema,
     field("Arguments (JSON)", args),
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Call" })),
     out,

@@ -62,6 +62,10 @@ export interface SafeFetchOptions {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
+  /** Extra abort signal (e.g. the run's). */
+  signal?: AbortSignal;
+  /** Stop reading early once this returns true for the text received so far (for SSE responses). */
+  stopWhen?: (bodySoFar: string) => boolean;
   userAgent?: string;
 }
 
@@ -70,6 +74,8 @@ export interface FetchedDocument {
   status: number;
   contentType: string;
   body: string;
+  /** Response headers (lower-case names). */
+  headers: Record<string, string>;
 }
 
 const USER_AGENT = "embed-assistant-ingest/1.0 (+https://github.com/kukutx/embed-assistant)";
@@ -114,7 +120,7 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
       dispatcher: agent,
       redirect: "manual",
       method,
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
+      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 20_000)]) : AbortSignal.timeout(opts.timeoutMs ?? 20_000),
       headers: {
         ...opts.headers,
         "user-agent": opts.userAgent ?? USER_AGENT,
@@ -139,6 +145,8 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
         received += chunk.byteLength;
         if (received > maxBytes) throw new FetchBlockedError(`response exceeds ${maxBytes} bytes`);
         chunks.push(chunk);
+        // Leaving the loop cancels the stream (servers may keep an SSE stream open).
+        if (opts.stopWhen && opts.stopWhen(Buffer.concat(chunks).toString("utf8"))) break;
       }
     }
     return {
@@ -146,6 +154,7 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
       status: res.status,
       contentType: res.headers.get("content-type") ?? "",
       body: Buffer.concat(chunks).toString("utf8"),
+      headers: Object.fromEntries(res.headers),
     };
   }
   throw new FetchBlockedError("too many redirects");

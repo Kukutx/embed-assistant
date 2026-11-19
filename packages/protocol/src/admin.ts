@@ -46,6 +46,8 @@ export const Assistant = z.object({
   groundedOnly: z.boolean(),
   /** HTTP actions (tools) this assistant may call. */
   actionIds: z.array(Id),
+  /** Remote MCP servers whose tools this assistant may call. */
+  mcpServerIds: z.array(Id),
   handoff: HandoffConfig,
   /** Offer follow-up question suggestions after each answer. */
   followUps: z.boolean(),
@@ -75,6 +77,7 @@ const AssistantFields = {
   sourceIds: z.array(Id).max(100),
   groundedOnly: z.boolean(),
   actionIds: z.array(Id).max(50),
+  mcpServerIds: z.array(Id).max(20),
   handoff: HandoffConfig,
   followUps: z.boolean(),
   queryRewrite: z.boolean(),
@@ -94,6 +97,7 @@ export const AssistantInput = z.object({
   sourceIds: AssistantFields.sourceIds.default([]),
   groundedOnly: AssistantFields.groundedOnly.default(true),
   actionIds: AssistantFields.actionIds.default([]),
+  mcpServerIds: AssistantFields.mcpServerIds.default([]),
   handoff: HandoffConfig.default({ enabled: false, message: DEFAULT_HANDOFF_MESSAGE, url: null, label: null }),
   followUps: AssistantFields.followUps.default(true),
   queryRewrite: AssistantFields.queryRewrite.default(true),
@@ -327,6 +331,69 @@ export const ActionTestResult = z.object({
   output: z.string(),
   durationMs: z.number().int(),
 });
+
+// ---------------------------------------------------------------------------
+// MCP servers: remote Model Context Protocol servers whose tools assistants can use
+// ---------------------------------------------------------------------------
+
+/** A tool advertised by a remote MCP server (cached at the last refresh). */
+export const McpRemoteTool = z.object({
+  name: z.string(),
+  title: z.string().nullable(),
+  description: z.string(),
+  inputSchema: z.record(z.string(), z.unknown()),
+  readOnly: z.boolean(),
+});
+export type McpRemoteTool = z.infer<typeof McpRemoteTool>;
+
+export const McpServer = z.object({
+  id: Id,
+  /** Short slug; the model sees tools as `<name>__<tool>`. */
+  name: z.string(),
+  title: z.string(),
+  /** Streamable HTTP endpoint. */
+  url: z.string(),
+  /** Header names configured (values are write-only and stored encrypted). */
+  headerNames: z.array(z.string()),
+  /** Ask the visitor before each call, except tools the server marks read-only. */
+  confirm: z.boolean(),
+  /** Only offer these tools to signed-in users. */
+  requireUser: z.boolean(),
+  /** Tool names to expose; null = all. */
+  allowedTools: z.array(z.string()).nullable(),
+  enabled: z.boolean(),
+  tools: z.array(McpRemoteTool),
+  protocolVersion: z.string().nullable(),
+  serverName: z.string().nullable(),
+  lastError: z.string().nullable(),
+  refreshedAt: Timestamp.nullable(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type McpServer = z.infer<typeof McpServer>;
+
+const McpServerFields = {
+  name: z.string().regex(/^[a-z][a-z0-9_]{0,23}$/, "lowercase letters, digits and _, starting with a letter (max 24)"),
+  title: z.string().min(1).max(100),
+  url: HttpUrl,
+  headers: z.record(z.string().regex(/^[A-Za-z0-9-]{1,64}$/), z.string().max(4096)).refine((h) => Object.keys(h).length <= 20, "at most 20 headers"),
+  confirm: z.boolean(),
+  requireUser: z.boolean(),
+  allowedTools: z.array(z.string().min(1).max(128)).max(200).nullable(),
+  enabled: z.boolean(),
+};
+export const McpServerInput = z.object({
+  name: McpServerFields.name,
+  title: McpServerFields.title,
+  url: McpServerFields.url,
+  headers: McpServerFields.headers.default({}),
+  confirm: McpServerFields.confirm.default(true),
+  requireUser: McpServerFields.requireUser.default(false),
+  allowedTools: McpServerFields.allowedTools.default(null),
+  enabled: McpServerFields.enabled.default(true),
+});
+export type McpServerInput = z.infer<typeof McpServerInput>;
+export const McpServerPatch = z.object(McpServerFields).partial();
 
 // ---------------------------------------------------------------------------
 // Webhooks (Standard Webhooks signatures: webhook-id / webhook-timestamp / webhook-signature)

@@ -51,13 +51,14 @@ Rules:
 | `/v1/admin/assistants`, `/widgets` (+ `/rotate-secret`, `/snippet`) | Configuration |
 | `/v1/admin/sources` (+ `/sync`, `/documents`) | Knowledge |
 | `/v1/admin/actions` (+ `/test`) | HTTP tools |
+| `/v1/admin/mcp-servers` (+ `/refresh`, `/test`) | Remote MCP servers as tools ([mcp.md](mcp.md)) |
 | `/v1/admin/webhooks` (+ `/test`, `/rotate-secret`, `/deliveries`) | Webhooks |
 | `/v1/admin/conversations` (+ `DELETE`, `/export?days=` as NDJSON) | Transcripts |
 | `/v1/admin/subjects/{subjectId}` (`DELETE`) | Erase everything about one visitor |
 | `/v1/admin/insights?days=`, `/usage`, `/models` | Analytics |
 | `/v1/admin/keys`, `/settings` | API keys, retention and budget |
 
-Keys have a scope: `admin` keys (`ea_admin_…`) can use the whole admin API; `mcp` keys (`ea_mcp_…`) are for integrations that only read knowledge and get `401` here. Admin endpoints have no CORS: call them from your backend or the bundled console.
+Keys have a scope: `admin` keys (`ea_admin_…`) can use the whole admin API; `mcp` keys (`ea_mcp_…`) can only use the MCP endpoint `/mcp` ([mcp.md](mcp.md)) and get `401` here. Admin endpoints have no CORS: call them from your backend or the bundled console.
 
 ## Compatibility
 

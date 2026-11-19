@@ -2,6 +2,15 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.2
+
+Model Context Protocol, both directions.
+
+- **MCP server** at `POST /mcp`: `search_knowledge`, `ask` (grounded answer with citations from an assistant), `get_document`, `list_sources`. Stateless 2026-07-28 revision with header validation, plus `initialize` for 2025-03-26 to 2025-11-25 clients. API keys with the `mcp` scope; their access tags filter knowledge. Origin check and per-key limits.
+- **Remote MCP servers as tools**: connect servers in the console or API, cache and refresh their tool lists, expose them as `<server>__<tool>` with argument validation, visitor confirmation (except read-only tools), tool allowlists and signed-in-only mode. The client prefers the stateless revision and falls back to sessions; JSON and SSE responses.
+- Admin console: *MCP servers* page with connection status, refresh and tool tester; MCP servers in the assistant form.
+- Docs: docs/mcp.md, ADR 0006.
+
 ## 1.0.1
 
 Agent capabilities. All additions are backward compatible: new optional fields, new endpoints and new event types.

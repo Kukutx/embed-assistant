@@ -1,6 +1,6 @@
 {
   "name": "@embed-assistant/protocol",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Versioned wire protocol (schemas, types, SSE events) shared by the embed-assistant server, widget and SDKs.",
   "license": "Apache-2.0",
   "type": "module",

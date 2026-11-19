@@ -71,7 +71,14 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
   const { sql } = s;
   const A = "Admin";
 
-  async function validateAssistantRefs(tenantId: string, input: { modelAlias?: string; sourceIds?: string[]; actionIds?: string[] }) {
+  async function validateAssistantRefs(tenantId: string, input: { modelAlias?: string; sourceIds?: string[]; actionIds?: string[]; mcpServerIds?: string[] }) {
+    if (input.mcpServerIds?.length) {
+      const rows = await sql<{ id: string }[]>`
+        SELECT id FROM mcp_servers WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(input.mcpServerIds)})`;
+      const found = new Set(rows.map((r) => r.id));
+      const missing = input.mcpServerIds.filter((id) => !found.has(id));
+      if (missing.length) throw badRequest("unknown MCP servers", { missing });
+    }
     if (input.actionIds?.length) {
       const rows = await sql<{ id: string }[]>`
         SELECT id FROM actions WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(input.actionIds)})`;

@@ -4,7 +4,11 @@ updates:
     directory: /
     schedule: { interval: monthly }
     groups:
-      all: { patterns: ["*"] }
+      # Minor and patch updates land together; each major update gets its own PR
+      # so a breaking change in one dependency does not block all the others.
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }

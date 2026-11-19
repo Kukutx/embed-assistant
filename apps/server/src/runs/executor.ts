@@ -25,6 +25,7 @@ import {
   type RunTool,
 } from "./tools.js";
 import type { RunEventBus } from "./events.js";
+import { listMcpServers, mcpRunTools } from "../mcp/servers.js";
 
 export interface RunSubject {
   id: string;
@@ -50,6 +51,8 @@ export interface ExecutorOptions {
   /** Key that decrypts stored secrets (action headers, widget identity secrets). */
   secretsKey: Buffer;
   allowPrivateNetworks: boolean;
+  /** Server version, sent as the MCP client version. */
+  version?: string;
 }
 
 const FLUSH_MS = 50;
@@ -177,6 +180,11 @@ export class RunExecutor {
           tools.set(x.name, actionTool(x, { key: this.opts.secretsKey, signingSecret, caller, allowPrivate: this.opts.allowPrivateNetworks }));
         }
       }
+    }
+    if (a.mcp_server_ids.length) {
+      const servers = await listMcpServers(this.sql, job.tenantId, a.mcp_server_ids);
+      const deps = { sql: this.sql, key: this.opts.secretsKey, allowPrivate: this.opts.allowPrivateNetworks, version: this.opts.version ?? "1", log: this.log };
+      for (const t of mcpRunTools(deps, servers, job.subject.kind === "user")) if (!tools.has(t.def.name)) tools.set(t.def.name, t);
     }
     if (a.client_tools) for (const t of job.clientTools ?? []) if (!tools.has(t.name)) tools.set(t.name, clientTool(t));
     return tools;
@@ -466,12 +474,12 @@ export class RunExecutor {
     }
     let out: { content: string; isError: boolean };
     try {
-      out = await tool.run!(call.input);
+      out = await tool.run!(call.input, signal);
     } catch (err) {
       if (signal.aborted) throw err;
       out = { content: `Tool failed: ${(err as Error).message}`, isError: true };
     }
-    metrics.tools.inc({ tool: tool.kind === "action" ? "action" : call.name, status: out.isError ? "error" : "ok" });
+    metrics.tools.inc({ tool: tool.kind === "action" || tool.kind === "mcp" ? tool.kind : call.name, status: out.isError ? "error" : "ok" });
     await emit(job.runId, nextSeq(), "tool.completed", { callId, name: call.name, isError: out.isError });
     return out;
   }
