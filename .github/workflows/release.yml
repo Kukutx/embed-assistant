@@ -1,9 +1,12 @@
 name: Release
 
-# Push a tag like v1.0.1 to publish ghcr.io/kukutx/embed-assistant:1.0.1 (and :latest).
+# Publishes ghcr.io/kukutx/embed-assistant:<version> (and :latest) with a GitHub release:
+# push a tag like v1.0.1, or run this workflow by hand ("Run workflow") on main,
+# which releases the version in package.json.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,6 +18,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      - id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -27,7 +32,7 @@ jobs:
         with:
           images: ghcr.io/kukutx/embed-assistant
           tags: |
-            type=semver,pattern={{version}}
+            type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=latest
       - uses: docker/build-push-action@v6
         with:
@@ -41,4 +46,11 @@ jobs:
       - name: GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag || true
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag || true
+          else
+            # Creates the v<version> tag on this commit.
+            gh release create "v$VERSION" --target "$GITHUB_SHA" --generate-notes || true
+          fi

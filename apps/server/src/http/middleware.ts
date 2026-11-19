@@ -154,6 +154,7 @@ export function adminAuth(s: Services): MiddlewareHandler<AppEnv> {
     if (!token || !token.startsWith(ADMIN_KEY_PREFIX)) throw unauthorized("missing admin key");
     const row = await findAdminKey(s.sql, hashAdminKey(token));
     if (!row) throw unauthorized("invalid admin key");
+    if (row.tenant_status === "suspended") throw forbidden("this workspace is suspended");
     if (!row.scopes.includes("admin")) throw forbidden("this key has no admin scope");
     c.set("tenantId", row.tenant_id);
     c.set("apiKey", row);

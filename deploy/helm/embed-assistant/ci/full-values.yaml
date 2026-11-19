@@ -1,0 +1,19 @@
+# Exercised by CI (helm lint/template): every optional feature on.
+publicBaseUrl: https://assistant.example.com
+secrets:
+  SECRET_KEY: ci-secret-key-0123456789abcdefghijklmnop
+  DATABASE_URL: postgres://u:p@db:5432/embed_assistant
+models:
+  deployments:
+    - { id: claude, provider: anthropic, model: claude-opus-5-5, apiKey: "${ANTHROPIC_API_KEY}" }
+  aliases: { standard: [claude] }
+worker: { separate: true, replicaCount: 1, resources: { requests: { cpu: 100m, memory: 256Mi } } }
+ingress:
+  enabled: true
+  className: nginx
+  annotations: { nginx.ingress.kubernetes.io/proxy-buffering: "off" }
+  hosts: [{ host: assistant.example.com, paths: [{ path: /, pathType: Prefix }] }]
+  tls: [{ secretName: assistant-tls, hosts: [assistant.example.com] }]
+autoscaling: { enabled: true }
+serviceMonitor: { enabled: true, bearerTokenSecret: { name: metrics, key: METRICS_TOKEN } }
+networkPolicy: { enabled: true }

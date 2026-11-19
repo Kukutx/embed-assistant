@@ -12,6 +12,7 @@ import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { evalRoutes } from "./routes/evals.js";
+import { platformAuth, platformRoutes } from "./routes/platform.js";
 import { adminAgentRoutes } from "./routes/adminAgent.js";
 import { mcpRoutes } from "../mcp/server.js";
 import { adminMcpRoutes } from "./routes/adminMcp.js";
@@ -74,11 +75,13 @@ export function createApp(s: Services): Hono<AppEnv> {
   app.use("/v1/admin/*", (c, next) => (/^\/v1\/admin\/sources\/[^/]+\/files$/.test(c.req.path) ? uploadLimit(c, next) : adminLimit(c, next)));
   app.use("/mcp", bodyLimit({ maxSize: 256 * 1024, onError: tooLarge }));
   app.use("/auth/*", bodyLimit({ maxSize: 16 * 1024, onError: tooLarge }));
-  app.use("/v1/*", async (c, next) => (c.req.path.startsWith("/v1/admin/") ? next() : publicBodyLimit(c, next)));
+  app.use("/v1/*", async (c, next) => (c.req.path.startsWith("/v1/admin/") || c.req.path.startsWith("/v1/platform/") ? next() : publicBodyLimit(c, next)));
   const chatAuth = sessionAuth(s, widgets);
   for (const p of ["/v1/conversations/*", "/v1/runs/*", "/v1/messages/*"]) {
     app.use(p, async (c, next) => (c.req.method === "OPTIONS" ? next() : chatAuth(c, next)));
   }
+  app.use("/v1/platform/*", bodyLimit({ maxSize: 64 * 1024, onError: tooLarge }));
+  app.use("/v1/platform/*", platformAuth(s));
   app.use("/v1/admin/*", adminAuth(s));
   app.use("/v1/admin/*", auditTrail(s));
 
@@ -91,6 +94,7 @@ export function createApp(s: Services): Hono<AppEnv> {
   authRoutes(app, s);
   inboxRoutes(app, s);
   evalRoutes(app, s);
+  platformRoutes(app, s);
   mcpRoutes(app, s);
 
   if (s.cfg.SERVE_WIDGET) {

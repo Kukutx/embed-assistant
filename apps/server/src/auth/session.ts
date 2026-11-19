@@ -22,6 +22,8 @@ export class SessionSigner {
   constructor(
     private readonly key: Uint8Array,
     private readonly ttlSeconds: number,
+    /** Keys of former SECRET_KEY values: tokens they signed stay valid until they expire. */
+    private readonly previous: readonly Uint8Array[] = [],
   ) {}
 
   async sign(claims: SessionClaims, maxExp?: number): Promise<{ token: string; expiresAt: Date }> {
@@ -48,11 +50,18 @@ export class SessionSigner {
 
   async verify(token: string): Promise<SessionClaims> {
     try {
-      const { payload } = await jwtVerify(token, this.key, {
-        issuer: ISSUER,
-        audience: AUDIENCE,
-        algorithms: ["HS256"],
-      });
+      const opts = { issuer: ISSUER, audience: AUDIENCE, algorithms: ["HS256"] };
+      const keys = [this.key, ...this.previous];
+      let payload: Record<string, unknown> | undefined;
+      for (let i = 0; i < keys.length && !payload; i++) {
+        try {
+          payload = (await jwtVerify(token, keys[i]!, opts)).payload;
+        } catch (err) {
+          // Only a wrong signature means "maybe an older key"; expiry and claim errors are final.
+          if (!(err instanceof joseErrors.JWSSignatureVerificationFailed) || i === keys.length - 1) throw err;
+        }
+      }
+      if (!payload) throw unauthorized("invalid or expired session token");
       const p = payload as Record<string, unknown>;
       if (
         typeof p.sub !== "string" ||

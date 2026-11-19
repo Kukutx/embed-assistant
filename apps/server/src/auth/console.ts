@@ -95,7 +95,9 @@ export const toSsoConfig = (r: SsoRow | null, publicBaseUrl: string): SsoConfig 
 });
 
 export async function getSso(sql: Tx, tenantId: string): Promise<SsoRow | null> {
-  const [r] = await sql<SsoRow[]>`SELECT * FROM sso_configs WHERE tenant_id = ${tenantId}`;
+  // A suspended tenant cannot sign in: its SSO configuration is not offered.
+  const [r] = await sql<SsoRow[]>`
+    SELECT s.* FROM sso_configs s JOIN tenants t ON t.id = s.tenant_id WHERE s.tenant_id = ${tenantId} AND t.status = 'active'`;
   return r ?? null;
 }
 
@@ -121,7 +123,7 @@ export const ssoClientSecret = (key: Buffer, r: SsoRow): string | null => (r.cli
 
 /** Tenants with SSO switched on (used to start a sign-in without naming the tenant). */
 export async function enabledSsoTenants(sql: Tx, limit = 2): Promise<string[]> {
-  return (await sql<{ tenant_id: string }[]>`SELECT tenant_id FROM sso_configs WHERE enabled ORDER BY tenant_id LIMIT ${limit}`).map((r) => r.tenant_id);
+  return (await sql<{ tenant_id: string }[]>`SELECT s.tenant_id FROM sso_configs s JOIN tenants t ON t.id = s.tenant_id WHERE s.enabled AND t.status = 'active' ORDER BY s.tenant_id LIMIT ${limit}`).map((r) => r.tenant_id);
 }
 
 // ------------------------------------------------------------------ sign-in
@@ -201,7 +203,8 @@ export async function findSessionUser(sql: Tx, token: string): Promise<UserRow |
   const hash = sha256(token);
   const [r] = await sql<(UserRow & { last_seen_at: Date })[]>`
     SELECT u.*, s.last_seen_at FROM console_sessions s JOIN console_users u ON u.id = s.user_id
-    WHERE s.token_hash = ${hash} AND s.expires_at > now() AND NOT u.disabled`;
+      JOIN tenants t ON t.id = u.tenant_id
+    WHERE s.token_hash = ${hash} AND s.expires_at > now() AND NOT u.disabled AND t.status = 'active'`;
   if (r && Date.now() - r.last_seen_at.getTime() > 60_000) {
     await sql`UPDATE console_sessions SET last_seen_at = now() WHERE token_hash = ${hash}`;
   }

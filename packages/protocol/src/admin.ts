@@ -857,3 +857,43 @@ export const EvalSuitePatch = z.object({
   description: z.string().max(1000),
   assistantId: Id,
 }).partial();
+
+// ---------------------------------------------------------------------------
+// Platform API (`/v1/platform/*`): operators of a multi-tenant installation
+// create, suspend and delete tenants. Authenticated with PLATFORM_ADMIN_TOKEN.
+// ---------------------------------------------------------------------------
+
+export const TenantStatus = z.enum(["active", "suspended"]);
+export const Tenant = z.object({
+  id: Id,
+  name: z.string(),
+  /** Your own identifier for this tenant (customer or billing account id). Unique. */
+  externalId: z.string().nullable(),
+  status: TenantStatus,
+  /** Free-form labels for your own systems (plan, region…). */
+  metadata: z.record(z.string(), z.string()),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+  suspendedAt: Timestamp.nullable(),
+  /** Usage over the last 30 days. */
+  usage: z.object({ conversations: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int() }),
+});
+export type Tenant = z.infer<typeof Tenant>;
+export const TenantList = z.object({ items: z.array(Tenant), nextCursor: z.string().nullable() });
+const Metadata = z.record(z.string().regex(/^[\w.-]{1,64}$/, "letters, digits, _ . -"), z.string().max(500)).refine((m) => Object.keys(m).length <= 30, "at most 30 keys");
+export const TenantInput = z.object({
+  name: z.string().trim().min(1).max(200),
+  externalId: z.string().trim().min(1).max(200).nullable().default(null),
+  metadata: Metadata.default({}),
+  /** Name of the first admin API key, returned once in the response. */
+  adminKeyName: z.string().trim().min(1).max(100).default("bootstrap"),
+});
+export const TenantPatch = z.object({
+  name: z.string().trim().min(1).max(200),
+  externalId: z.string().trim().min(1).max(200).nullable(),
+  metadata: Metadata,
+  /** Suspended tenants' widgets, admin API, console and MCP endpoint stop working; their data is kept. */
+  status: TenantStatus,
+}).partial();
+export const CreatedTenant = z.object({ tenant: Tenant, adminKey: z.string() });
+export const PlatformKeyInput = z.object({ name: z.string().trim().min(1).max(100).default("break-glass") });

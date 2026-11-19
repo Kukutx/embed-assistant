@@ -1,0 +1,19 @@
+embed-assistant {{ .Chart.AppVersion }} is deployed as {{ include "ea.fullname" . }}.
+
+1. Database migrations run automatically when the pods start (one at a time,
+   under a Postgres advisory lock).
+
+2. Create the first tenant (with an admin key and a demo assistant):
+
+   kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "ea.fullname" . }} -- node dist/cli/seed.js
+
+   or, with PLATFORM_ADMIN_TOKEN set, POST {{ .Values.publicBaseUrl }}/v1/platform/tenants.
+
+3. Open the console: {{ .Values.publicBaseUrl }}/admin/
+{{- if not .Values.ingress.enabled }}
+   (no Ingress is enabled; for a quick look:
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "ea.fullname" . }} 8787:{{ .Values.service.port }})
+{{- end }}
+
+Operations guide (backups, upgrades, key rotation):
+https://github.com/Kukutx/embed-assistant/blob/main/docs/operations.md

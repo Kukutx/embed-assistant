@@ -16,7 +16,7 @@ It is built to be generic and boring to operate:
 - **Guardrails and evaluations.** Refuse blocked terms and topics, harmful requests and prompt-injection attempts, and stop answers that mention what they must not. Test suites score answers (required phrases, citations, expected behaviour, a model judge against reference answers) and flag regressions after every change. See [docs/quality.md](docs/quality.md).
 - **Learns where it falls short.** Insights show top questions, knowledge gaps, unhelpful answers, handoffs and tool usage, so you know which docs to write next.
 - **Team access with single sign-on.** People sign in to the console through any OpenID Connect provider (Entra ID, Google, Okta, Auth0, Keycloak…) and get a role: owner, admin, editor, analyst or agent. See [docs/access.md](docs/access.md).
-- **Ready for operations teams.** Audit log of every admin change (streamable to a SIEM), OpenTelemetry tracing with GenAI conventions to any OTLP backend, Prometheus metrics, request ids and structured JSON logs.
+- **Ready for operations teams.** Docker Compose or a hardened Helm chart for Kubernetes, zero-downtime `SECRET_KEY` rotation, a platform API to create, suspend and delete tenants, audit log of every admin change (streamable to a SIEM), OpenTelemetry tracing with GenAI conventions, Prometheus metrics, request ids and structured JSON logs. See [docs/operations.md](docs/operations.md).
 - **Privacy built in.** Optional masking of e-mails, phone, card and IBAN numbers before storage, retention policies, and per-visitor erasure.
 - **Open protocol.** Versioned HTTP + Server-Sent Events API with an OpenAPI document. Build your own UI, bot or integration in any language.
 

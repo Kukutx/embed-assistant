@@ -14,6 +14,16 @@ const EnvSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
   /** Root secret. Session tokens and stored widget secrets are derived from it. */
   SECRET_KEY: z.string().min(32, "SECRET_KEY must be at least 32 characters"),
+  /**
+   * Former SECRET_KEY values, separated by whitespace, while rotating: stored
+   * secrets they encrypted still decrypt and session tokens they signed stay
+   * valid. Run `rotate-secrets`, then remove them.
+   */
+  SECRET_KEY_PREVIOUS: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "").split(/\s+/).filter(Boolean))
+    .pipe(z.array(z.string().min(32, "each SECRET_KEY_PREVIOUS value must be at least 32 characters"))),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   /** Trust X-Forwarded-For (only behind a reverse proxy you control). */
   TRUST_PROXY: bool.default(false),
@@ -54,6 +64,11 @@ const EnvSchema = z.object({
   SERVE_WIDGET: bool.default(true),
   /** Directory holding the built widget files. */
   WIDGET_DIST_DIR: z.string().optional(),
+  /**
+   * Enables the platform API (`/v1/platform/*`: create, suspend and delete
+   * tenants) for this bearer token. Unset = the platform API does not exist.
+   */
+  PLATFORM_ADMIN_TOKEN: z.string().min(32, "PLATFORM_ADMIN_TOKEN must be at least 32 characters").optional(),
   /** If set, GET /metrics requires `Authorization: Bearer <METRICS_TOKEN>`. */
   METRICS_TOKEN: z.string().min(16).optional(),
   /** Serve the built-in admin console at /admin and the demo page at /demo. */

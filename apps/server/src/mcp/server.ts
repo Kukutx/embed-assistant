@@ -249,6 +249,7 @@ export function mcpRoutes(app: Hono<AppEnv>, s: Services): void {
     if (!token || !isApiKey(token)) return rpcError(c, 401, null, ERR.invalidRequest, "Missing or invalid API key", undefined, challenge);
     const key = await findAdminKey(s.sql, hashAdminKey(token));
     if (!key) return rpcError(c, 401, null, ERR.invalidRequest, "Missing or invalid API key", undefined, challenge);
+    if (key.tenant_status === "suspended") return rpcError(c, 403, null, ERR.invalidRequest, "This workspace is suspended");
     if (!key.scopes.includes("mcp") && !key.scopes.includes("admin")) return rpcError(c, 403, null, ERR.invalidRequest, "This key has no mcp scope");
 
     const raw = await c.req.text();

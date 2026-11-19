@@ -2,6 +2,16 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.8
+
+Ready to operate at scale.
+
+- **Helm chart** (`deploy/helm/embed-assistant`): hardened pods (non-root, read-only root filesystem, no capabilities), startup/liveness/readiness probes, graceful drain, PodDisruptionBudget, optional HPA, Ingress, NetworkPolicy, ServiceMonitor, models config as a ConfigMap, existing-Secret support and an optional separate worker Deployment. Linted and rendered in CI.
+- **Zero-downtime `SECRET_KEY` rotation**: `SECRET_KEY_PREVIOUS` keeps stored secrets readable and sessions valid during the switch, and `rotateSecrets.js` re-encrypts every stored secret (with `--dry-run`).
+- **Platform API** (`/v1/platform/tenants`, enabled by `PLATFORM_ADMIN_TOKEN`): create tenants with a first admin key, list them with 30-day usage, label them with your own ids and metadata, suspend (widgets, keys, console and MCP stop; data kept), reactivate, issue recovery keys, and delete (only after suspension). Platform actions appear in the tenant's audit log.
+- **Operations guide** ([docs/operations.md](docs/operations.md)): deployment, scaling, backups and restore, upgrades, key rotation, tenants and alerting.
+- Releases can be published from the Actions tab (*Release → Run workflow*): image `ghcr.io/kukutx/embed-assistant:<version>` and a GitHub release.
+
 ## 1.0.7
 
 Safe and measurable answers.

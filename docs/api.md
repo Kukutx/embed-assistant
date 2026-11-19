@@ -69,6 +69,10 @@ Rules:
 
 Every successful change made through the admin API (create, update, delete, rotate, sync, upload, test calls, key creation and revocation, settings, erasure) and every conversation export is written to an append-only audit log: when, which key, the action (`widgets.update`), the target id, IP, user agent, request id, trace id, and the request body with secret values (headers, tokens, passwords, keys) redacted and long text shortened. Reads and failed requests are not recorded. There is no API to change or delete entries; they expire after `AUDIT_RETENTION_DAYS`. Subscribe a webhook to `audit.recorded` to stream entries to a SIEM.
 
+## Platform API
+
+For operators of a multi-tenant installation, enabled by `PLATFORM_ADMIN_TOKEN`: `/v1/platform/tenants` to create (with a first admin key), list with usage, rename, suspend, reactivate and delete tenants, and issue recovery keys. See [operations.md](operations.md#tenants).
+
 Keys have a scope: `admin` keys (`ea_admin_…`) can use the whole admin API; `mcp` keys (`ea_mcp_…`) can only use the MCP endpoint `/mcp` ([mcp.md](mcp.md)) and get `401` here. Admin endpoints have no CORS: call them from your backend or the bundled console.
 
 ## Compatibility

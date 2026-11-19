@@ -249,13 +249,16 @@ export interface KeyRow {
   access: string[];
   created_at: Date;
   last_used_at: Date | null;
+  /** Status of the key's tenant: a suspended tenant's keys are refused. */
+  tenant_status?: "active" | "suspended";
 }
 
 export async function findAdminKey(sql: Tx, hash: Buffer): Promise<KeyRow | null> {
   // last_used_at is refreshed at most once a minute to avoid a write per request.
   const rows = await sql<KeyRow[]>`
-    SELECT id, tenant_id, name, prefix, scopes, access, created_at, last_used_at FROM admin_keys
-    WHERE key_hash = ${hash} AND revoked_at IS NULL`;
+    SELECT k.id, k.tenant_id, k.name, k.prefix, k.scopes, k.access, k.created_at, k.last_used_at, t.status AS tenant_status
+    FROM admin_keys k JOIN tenants t ON t.id = k.tenant_id
+    WHERE k.key_hash = ${hash} AND k.revoked_at IS NULL`;
   const row = rows[0];
   if (row && (!row.last_used_at || Date.now() - row.last_used_at.getTime() > 60_000)) {
     await sql`UPDATE admin_keys SET last_used_at = now() WHERE id = ${row.id}`;
@@ -349,7 +352,9 @@ export async function listWidgets(sql: Tx, tenantId: string): Promise<WidgetRow[
 
 /** Public lookup by id (widget ids are public identifiers). */
 export async function getWidgetById(sql: Tx, id: string): Promise<WidgetRow | null> {
-  const rows = await sql<WidgetRow[]>`SELECT * FROM widgets WHERE id = ${id}`;
+  // A suspended tenant's widgets behave as if they did not exist.
+  const rows = await sql<WidgetRow[]>`
+    SELECT w.* FROM widgets w JOIN tenants t ON t.id = w.tenant_id WHERE w.id = ${id} AND t.status = 'active'`;
   return rows[0] ?? null;
 }
 
@@ -639,6 +644,7 @@ export async function dueSources(sql: Sql, limit = 50): Promise<{ id: string; te
   return sql<{ id: string; tenant_id: string }[]>`
     SELECT id, tenant_id FROM knowledge_sources
     WHERE type <> 'manual' AND sync_interval_hours IS NOT NULL AND status NOT IN ('queued', 'running')
+      AND tenant_id IN (SELECT id FROM tenants WHERE status = 'active')
       -- updated_at moves with every status change, so it marks the last attempt (successful or not).
       AND updated_at < now() - make_interval(hours => sync_interval_hours)
     ORDER BY updated_at

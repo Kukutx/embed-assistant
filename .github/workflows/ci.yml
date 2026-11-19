@@ -52,3 +52,18 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  helm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - name: Lint and render the chart
+        run: |
+          chart=deploy/helm/embed-assistant
+          helm lint "$chart" -f "$chart/ci/full-values.yaml" --strict
+          helm lint "$chart" -f "$chart/ci/existing-secret-values.yaml" --strict
+          helm template ea "$chart" -f "$chart/ci/full-values.yaml" > /dev/null
+          # Without a secret the chart must refuse to render.
+          if helm template ea "$chart" > /dev/null 2>&1; then echo "expected a failure without SECRET_KEY"; exit 1; fi

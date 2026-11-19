@@ -13,12 +13,51 @@ export function encrypt(key: Buffer, plaintext: string): string {
   return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ct.toString("base64url")].join(".");
 }
 
-export function decrypt(key: Buffer, payload: string): string {
-  const [v, iv, tag, ct] = payload.split(".");
-  if (v !== "v1" || !iv || !tag || ct === undefined) throw new Error("unsupported ciphertext");
+/**
+ * A key that also carries older keys still accepted for decryption, for
+ * SECRET_KEY rotation: new values are always encrypted with the current key,
+ * existing values decrypt with whichever key wrote them until
+ * `rotate-secrets` re-encrypts them. It is a plain Buffer everywhere else.
+ */
+export function keyring(current: Buffer, previous: readonly Buffer[]): Buffer {
+  return Object.defineProperty(Buffer.from(current), "previous", { value: previous, enumerable: false });
+}
+const previousKeys = (key: Buffer): readonly Buffer[] => (key as Buffer & { previous?: readonly Buffer[] }).previous ?? [];
+
+function decryptWith(key: Buffer, iv: string, tag: string, ct: string): string {
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"));
   decipher.setAuthTag(Buffer.from(tag, "base64url"));
   return Buffer.concat([decipher.update(Buffer.from(ct, "base64url")), decipher.final()]).toString("utf8");
+}
+
+export function decrypt(key: Buffer, payload: string): string {
+  const [v, iv, tag, ct] = payload.split(".");
+  if (v !== "v1" || !iv || !tag || ct === undefined) throw new Error("unsupported ciphertext");
+  try {
+    return decryptWith(key, iv, tag, ct);
+  } catch (err) {
+    // GCM authentication fails for a value written with another key: try the previous ones.
+    for (const old of previousKeys(key)) {
+      try {
+        return decryptWith(old, iv, tag, ct);
+      } catch {
+        /* next */
+      }
+    }
+    throw err;
+  }
+}
+
+/** True when the value was written with the current key (no re-encryption needed). */
+export function isCurrent(key: Buffer, payload: string): boolean {
+  const [v, iv, tag, ct] = payload.split(".");
+  if (v !== "v1" || !iv || !tag || ct === undefined) return false;
+  try {
+    decryptWith(key, iv, tag, ct);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function sha256(input: string): Buffer {

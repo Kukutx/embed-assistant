@@ -1,6 +1,6 @@
 {
   "name": "@embed-assistant/server",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "private": true,
   "description": "embed-assistant API server: sessions, conversations, streaming runs, knowledge, model routing.",
   "license": "Apache-2.0",
@@ -13,7 +13,8 @@
     "migrate": "tsx src/cli/migrate.ts",
     "seed": "tsx src/cli/seed.ts",
     "openapi": "tsx src/cli/openapi.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "rotate-secrets": "tsx src/cli/rotateSecrets.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

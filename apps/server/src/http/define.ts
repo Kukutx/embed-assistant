@@ -10,7 +10,7 @@ import type { AppEnv } from "./env.js";
  * are used both to validate requests and to generate the OpenAPI document.
  * No codegen and no framework lock-in beyond a plain Hono handler.
  */
-export type Auth = "none" | "session" | "admin";
+export type Auth = "none" | "session" | "admin" | "platform";
 
 export interface RouteSpec<B extends z.ZodType | undefined, Q extends z.ZodType | undefined> {
   method: "get" | "post" | "put" | "patch" | "delete";
@@ -101,7 +101,7 @@ export function openApiDocument(baseUrl: string, version: string): Record<string
       ...(r.auth === "admin" ? { "x-permission": routePermission(r.method, r.path) } : {}),
       operationId: `${r.method}${r.path.replace(/\/v1/, "").replace(/[{}]/g, "").replace(/[/-](\w)/g, (_, ch: string) => ch.toUpperCase())}`,
       parameters: params,
-      security: r.auth === "none" ? [] : [{ [r.auth === "admin" ? "adminKey" : "sessionToken"]: [] }],
+      security: r.auth === "none" ? [] : [{ [{ admin: "adminKey", platform: "platformToken", session: "sessionToken" }[r.auth]]: [] }],
       responses: {
         [String(r.response.status)]: {
           description: r.response.description ?? "OK",
@@ -135,6 +135,7 @@ export function openApiDocument(baseUrl: string, version: string): Record<string
       securitySchemes: {
         sessionToken: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
         adminKey: { type: "http", scheme: "bearer", description: "Tenant admin key (ea_admin_..., every permission) or console session token (ea_cs_..., the user's role decides)" },
+        platformToken: { type: "http", scheme: "bearer", description: "PLATFORM_ADMIN_TOKEN of the installation (operators only; the platform API is off when it is unset)" },
       },
       schemas: {
         Error: {

@@ -6,7 +6,8 @@ All settings are environment variables (a `.env` file works with Docker Compose 
 
 | Variable | Default | |
 |---|---|---|
-| `SECRET_KEY` | (required) | At least 32 characters. Session tokens and the encryption key for widget secrets are derived from it. Changing it invalidates sessions and stored widget secrets. |
+| `SECRET_KEY` | (required) | At least 32 characters. Session tokens and the encryption key for stored secrets (widget identity secrets, action and MCP headers, webhook and SSO secrets) are derived from it. Back it up with the database. To change it, follow [key rotation](operations.md#rotating-secret_key). |
+| `SECRET_KEY_PREVIOUS` | | Former `SECRET_KEY` values (space-separated) during a rotation: secrets they encrypted still decrypt and sessions they signed stay valid. |
 | `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/embed_assistant` | Postgres 14+ with the `vector` extension available. |
 | `DATABASE_POOL_MAX` | `10` | Connections per instance. |
 | `PUBLIC_BASE_URL` | `http://localhost:8787` | Used in embed snippets and the OpenAPI document. |
@@ -64,10 +65,11 @@ Without `MODELS_CONFIG`, these aliases are generated from whatever is configured
 
 | Variable | Default | |
 |---|---|---|
-| `RUN_WORKER` | `true` | Run the crawler queue in this process. With several instances you can dedicate one to it. |
+| `RUN_WORKER` | `true` | Run background jobs (crawling, webhook delivery, evaluations) in this process. Safe on every instance; with several you can dedicate some to it. |
 | `SERVE_WIDGET` / `WIDGET_DIST_DIR` | `true` | Serve `/widget/*`. Disable when you host the files on a CDN. |
 | `SERVE_CONSOLE` | `true` | Serve `/admin/` and `/demo`. |
 | `METRICS_TOKEN` | | Require a bearer token for `/metrics`. |
+| `PLATFORM_ADMIN_TOKEN` | | At least 32 characters. Enables the [platform API](operations.md#tenants) to create, suspend and delete tenants. Unset: that API does not exist. |
 | `INGEST_ALLOW_PRIVATE_NETWORKS` | `false` | Allow crawling private/loopback addresses (local development only). |
 | `OUTBOUND_ALLOW_PRIVATE_NETWORKS` | `false` | Allow actions and webhooks to call private/loopback addresses (for APIs on your internal network; keep off on shared hosts). |
 
@@ -108,4 +110,5 @@ node dist/cli/migrate.js            # apply migrations (the server also does thi
 node dist/cli/seed.js               # first-run setup with demo data
 node dist/cli/seed.js --new-admin-key
 node dist/cli/openapi.js > openapi.json
+node dist/cli/rotateSecrets.js [--dry-run]   # re-encrypt stored secrets with SECRET_KEY
 ```

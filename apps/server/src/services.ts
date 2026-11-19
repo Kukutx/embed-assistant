@@ -5,7 +5,7 @@ import type { Config } from "./config.js";
 import { SessionSigner } from "./auth/session.js";
 import { createSql, type Sql } from "./db/pool.js";
 import type { Services } from "./http/env.js";
-import { deriveKey } from "./lib/crypto.js";
+import { deriveKey, keyring } from "./lib/crypto.js";
 import { createLogger, type Logger } from "./lib/log.js";
 import { metrics } from "./lib/metrics.js";
 import { RateLimiter } from "./lib/rateLimit.js";
@@ -34,6 +34,11 @@ export function createServices(cfg: Config, overrides: { sql?: Sql; log?: Logger
       log.warn({ deployment: from, err: err.message }, "model failover");
     });
   const bus = new RunEventBus(sql);
+  // SECRET_KEY rotation: older keys still decrypt stored secrets and verify session tokens.
+  const secretsKey = keyring(
+    deriveKey(cfg.SECRET_KEY, "widget-secret-encryption"),
+    cfg.SECRET_KEY_PREVIOUS.map((k) => deriveKey(k, "widget-secret-encryption")),
+  );
   return {
     cfg,
     version: serverVersion(),
@@ -42,13 +47,17 @@ export function createServices(cfg: Config, overrides: { sql?: Sql; log?: Logger
     models,
     bus,
     executor: new RunExecutor(sql, bus, models, log, {
-      secretsKey: deriveKey(cfg.SECRET_KEY, "widget-secret-encryption"),
+      secretsKey,
       allowPrivateNetworks: cfg.OUTBOUND_ALLOW_PRIVATE_NETWORKS,
       version: serverVersion(),
     }),
     limiter: new RateLimiter(sql),
-    sessions: new SessionSigner(deriveKey(cfg.SECRET_KEY, "session-token"), cfg.SESSION_TTL_SECONDS),
-    secretsKey: deriveKey(cfg.SECRET_KEY, "widget-secret-encryption"),
+    sessions: new SessionSigner(
+      deriveKey(cfg.SECRET_KEY, "session-token"),
+      cfg.SESSION_TTL_SECONDS,
+      cfg.SECRET_KEY_PREVIOUS.map((k) => deriveKey(k, "session-token")),
+    ),
+    secretsKey,
     ingest: { sql, log, embeddings: models.embeddings, allowPrivate: cfg.INGEST_ALLOW_PRIVATE_NETWORKS },
   };
 }
