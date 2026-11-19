@@ -15,8 +15,8 @@
   "devDependencies": {
     "@embed-assistant/protocol": "workspace:*",
     "esbuild": "^0.28.0",
-    "happy-dom": "^18.0.1",
-    "typescript": "~6.0.3",
-    "vitest": "^4.0.0"
+    "happy-dom": "^21.0.4",
+    "typescript": "~7.0.2",
+    "vitest": "^5.1.0"
   }
 }
