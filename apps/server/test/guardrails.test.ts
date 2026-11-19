@@ -171,7 +171,7 @@ describe.skipIf(!DB)("guardrails and evaluations (postgres)", () => {
     }
     const msgs = await json(req("GET", `/v1/conversations/${conv}/messages`, { token }));
     const [run] = await sql<{ guardrail: string | null; guardrail_detail: string | null }[]>`SELECT guardrail, guardrail_detail FROM runs WHERE id = ${r.run.id}`;
-    return { answer: msgs.items.at(-1).content as string, guardrail: run!.guardrail, detail: run!.guardrail_detail };
+    return { answer: msgs.items.at(-1).content as string, guardrail: run!.guardrail, detail: run!.guardrail_detail, conv };
   };
 
   beforeAll(async () => {
@@ -212,8 +212,8 @@ describe.skipIf(!DB)("guardrails and evaluations (postgres)", () => {
     expect(updated.guardrails).toMatchObject({ blockedTerms: ["CompetitorX", "crypto scam"], promptInjection: true, supportMessage: expect.stringContaining("face it alone") });
     const before = model.answered.length;
 
-    expect(await ask("Is COMPETITORX better?")).toEqual({ answer: "I can only help with our shop.", guardrail: "term", detail: "competitorx" });
-    expect(await ask("Can you diagnose my rash?")).toEqual({ answer: "I can only help with our shop.", guardrail: "topic", detail: "medical diagnosis" });
+    expect(await ask("Is COMPETITORX better?")).toMatchObject({ answer: "I can only help with our shop.", guardrail: "term", detail: "competitorx" });
+    expect(await ask("Can you diagnose my rash?")).toMatchObject({ answer: "I can only help with our shop.", guardrail: "topic", detail: "medical diagnosis" });
     const harm = await ask("I want to hurt myself");
     expect(harm.guardrail).toBe("harmful");
     expect(harm.answer).toContain("face it alone");
@@ -222,7 +222,7 @@ describe.skipIf(!DB)("guardrails and evaluations (postgres)", () => {
     expect(model.answered.length).toBe(before);
 
     // An answer containing a blocked term is replaced.
-    expect(await ask("Tell me about rival shops")).toEqual({ answer: "I can only help with our shop.", guardrail: "answer_term", detail: "competitorx" });
+    expect(await ask("Tell me about rival shops")).toMatchObject({ answer: "I can only help with our shop.", guardrail: "answer_term", detail: "competitorx" });
     expect((await ask("How do returns work?")).answer).toBe("You can return items within 30 days.");
 
     const insights = await admin("GET", "/insights?days=1");
@@ -282,5 +282,60 @@ describe.skipIf(!DB)("guardrails and evaluations (postgres)", () => {
     expect(list.items[0]).toMatchObject({ id: suite.id, caseCount: 3, lastRun: { id: second.id, passed: 1 } });
     const audit = await admin("GET", "/audit-log");
     expect(audit.items.map((x: { action: string }) => x.action)).toEqual(expect.arrayContaining(["evals.run", "eval-cases.create", "evals.create"]));
+  });
+  it("keeps a version history, restores a version and evaluates a saved version", async () => {
+    const history = await admin("GET", `/assistants/${assistantId}/versions`, undefined, 200);
+    expect(history.items.map((v: { version: number }) => v.version)).toEqual([3, 2, 1]);
+    expect(history.items[0]).toMatchObject({ createdBy: "ci", changes: ["guardrails"], note: null });
+    expect(history.items[2].changes).toEqual([]);
+
+    await admin("PATCH", `/assistants/${assistantId}`, { instructions: "Be brief.", changeNote: "Shorter answers" }, 200);
+    const v4 = (await admin("GET", `/assistants/${assistantId}/versions`)).items[0];
+    expect(v4).toMatchObject({ version: 4, note: "Shorter answers", changes: ["instructions"] });
+    const v2 = await admin("GET", `/assistants/${assistantId}/versions/2`, undefined, 200);
+    expect(v2.config.guardrails.blockedTerms).toEqual(["CompetitorX", "crypto scam"]);
+    expect(v2.config.instructions).toBe("");
+    await admin("GET", `/assistants/${assistantId}/versions/99`, undefined, 404);
+
+    // Restoring saves a new version; history is never rewritten.
+    const restored = await admin("POST", `/assistants/${assistantId}/versions/2/restore`, {}, 200);
+    expect(restored).toMatchObject({ version: 5, instructions: "", guardrails: { blockedTerms: ["CompetitorX", "crypto scam"] } });
+    const v5 = (await admin("GET", `/assistants/${assistantId}/versions`)).items[0];
+    expect(v5).toMatchObject({ version: 5, note: "Restored version 2" });
+    expect(v5.changes).toEqual(["guardrails", "instructions"]);
+
+    // Evaluate version 3 (no blocked terms) while version 5 is live.
+    const [suite] = (await admin("GET", "/evals")).items;
+    await admin("POST", `/evals/${suite.id}/runs`, { version: 42 }, 400);
+    const run = await admin("POST", `/evals/${suite.id}/runs`, { version: 3 }, 202);
+    expect(run).toMatchObject({ assistantVersion: 3, pinnedVersion: true });
+    const worker = new JobWorker(sql, s.log, { ingest_source: async () => {}, deliver_webhook: async () => {}, run_eval: (job) => runEvalJob({ sql, models: s.models, log: s.log }, job) });
+    while (await worker.tick(["run_eval"])) {}
+    const done = await admin("GET", `/eval-runs/${run.id}`);
+    expect(done).toMatchObject({ status: "completed", assistantVersion: 3, pinnedVersion: true });
+    expect(done.results[1]).toMatchObject({ outcome: "answer", passed: false });
+    // The live assistant still refuses.
+    expect((await ask("Is CompetitorX better?")).guardrail).toBe("term");
+  });
+
+  it("traces how each answer was produced", async () => {
+    const { conv } = await ask("How do returns work?");
+    const second = await json(req("POST", `/v1/conversations/${conv}/runs`, { token, body: { content: "Is CompetitorX better?" } }), 202);
+    for (let i = 0; i < 100; i++) {
+      const r = await json(req("GET", `/v1/runs/${second.run.id}`, { token }));
+      if (r.status === "completed") break;
+      await new Promise((ok) => setTimeout(ok, 30));
+    }
+    const traces = await admin("GET", `/conversations/${conv}/runs`, undefined, 200);
+    expect(traces.items).toHaveLength(2);
+    const [answered, refused] = traces.items;
+    expect(answered).toMatchObject({ status: "completed", assistantVersion: 5, usage: { inputTokens: 10, outputTokens: 5 }, guardrail: null, error: null, handoff: false, tools: [] });
+    expect(answered.answerMessageId).toMatch(/^msg_/);
+    expect(answered.deltaCount).toBeGreaterThan(0);
+    expect(answered.timeline.map((e: { type: string }) => e.type)).toContain("message.completed");
+    expect(answered.timeline.some((e: { type: string }) => e.type === "message.delta")).toBe(false);
+    expect(answered.durationMs).toBeGreaterThanOrEqual(0);
+    expect(refused).toMatchObject({ guardrail: { kind: "term", detail: "competitorx" } });
+    await admin("GET", "/conversations/cnv_missing/runs", undefined, 404);
   });
 });

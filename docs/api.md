@@ -52,12 +52,14 @@ Rules:
 | Path | |
 |---|---|
 | `/v1/admin/assistants`, `/widgets` (+ `/rotate-secret`, `/snippet`) | Configuration |
+| `/v1/admin/assistants/{id}/versions` (+ `/{version}`, `/{version}/restore`) | Version history: every saved configuration, who saved it, the change note and which fields changed; restore saves an old configuration as a new version |
 | `/v1/admin/sources` (+ `PATCH`, `/sync`, `/documents`, `/files` multipart upload) | Knowledge |
 | `/v1/admin/actions` (+ `/test`) | HTTP tools |
 | `/v1/admin/mcp-servers` (+ `/refresh`, `/test`) | Remote MCP servers as tools ([mcp.md](mcp.md)) |
 | `/v1/admin/webhooks` (+ `/test`, `/rotate-secret`, `/deliveries`) | Webhooks |
 | `/v1/admin/conversations` (+ `?handoff=waiting\|active\|resolved`, `DELETE`, `/export?days=` as NDJSON) | Transcripts and the handoff inbox |
 | `/v1/admin/conversations/{id}/assign`, `/reply`, `/release` | Live takeover by a person |
+| `/v1/admin/conversations/{id}/runs` | How each answer was produced: passages given to the model, tools and their timings, tokens, model deployment, assistant version, guardrail, errors and an event timeline |
 | `/v1/admin/subjects/{subjectId}` (`DELETE`) | Erase everything about one visitor |
 | `/v1/admin/insights?days=`, `/usage`, `/models` | Analytics |
 | `/v1/admin/keys`, `/settings` | API keys, retention and budget |

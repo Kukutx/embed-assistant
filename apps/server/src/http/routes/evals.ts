@@ -14,6 +14,7 @@ import {
   EvalSuiteList,
   EvalSuitePatch,
 } from "@embed-assistant/protocol";
+import { getVersion } from "../../assistants/versions.js";
 import { getAssistant } from "../../db/store.js";
 import {
   addCases,
@@ -125,7 +126,7 @@ export function evalRoutes(app: Hono<AppEnv>, s: Services): void {
       method: "post", path: "/v1/admin/evals/{id}/runs", tag: T, summary: "Run the suite",
       description:
         "Answers every case in the background (no conversations are created and no actions, MCP or page tools run; a handoff is only recorded), " +
-        "then scores it. Pass another `assistantId` to compare a changed copy of the assistant on the same cases. Uses model tokens.",
+        "then scores it. Pass `version` to evaluate a saved version from the assistant's history, or another `assistantId` to compare a different assistant on the same cases. Uses model tokens.",
       auth: "admin", body: EvalRunInput, response: { status: 202, schema: EvalRun },
     },
     async (c, { body }) => {
@@ -134,8 +135,20 @@ export function evalRoutes(app: Hono<AppEnv>, s: Services): void {
       const active = await sql`SELECT 1 FROM eval_runs WHERE suite_id = ${suite.id} AND status IN ('queued', 'running') LIMIT 1`;
       if (active.length) throw conflict("a run of this suite is already in progress");
       const a = await assistantOr400(c, body.assistantId ?? suite.assistant_id);
+      if (body.version !== undefined) {
+        const saved = await getVersion(sql, a.tenant_id, a.id, body.version);
+        if (!saved) throw badRequest(`version ${body.version} is not in the history of assistant ${a.id}`);
+        if (!s.models.hasAlias(saved.config.modelAlias)) throw badRequest(`version ${body.version} uses the model alias "${saved.config.modelAlias}", which is no longer configured`);
+      }
       const actor = c.get("actor");
-      const run = await createRun(sql, { suite, assistantId: a.id, assistantVersion: a.version, judge: body.judge, createdBy: actor.name ?? actor.email ?? actor.id });
+      const run = await createRun(sql, {
+        suite,
+        assistantId: a.id,
+        assistantVersion: body.version ?? a.version,
+        pinned: body.version !== undefined,
+        judge: body.judge,
+        createdBy: actor.name ?? actor.email ?? actor.id,
+      });
       await enqueueJob(sql, suite.tenant_id, "run_eval", { runId: run.id });
       return c.json(toEvalRun(run), 202);
     });

@@ -21,8 +21,11 @@ type Tx = Sql | import("postgres").TransactionSql<{}>;
 
 const VERBS: Record<string, string> = { POST: "create", PUT: "upsert", PATCH: "update", DELETE: "delete", GET: "read" };
 
-/** Names for routes whose generic name would be unclear. Keys are `METHOD route` below /v1/admin. */
-const NAMED: Record<string, string> = {
+/**
+ * Names for routes whose generic name would be unclear. Keys are `METHOD route` below /v1/admin;
+ * values are a name, or [name, path parameter that identifies the target].
+ */
+const NAMED: Record<string, string | [string, string]> = {
   "POST /sources/:id/files": "documents.upload",
   "DELETE /subjects/:subjectId": "subjects.erase",
   "DELETE /keys/:id": "keys.revoke",
@@ -32,6 +35,7 @@ const NAMED: Record<string, string> = {
   "POST /evals/:id/cases": "eval-cases.create",
   "PATCH /evals/:id/cases/:caseId": "eval-cases.update",
   "DELETE /evals/:id/cases/:caseId": "eval-cases.delete",
+  "POST /assistants/:id/versions/:version/restore": ["assistants.restore-version", "id"],
 };
 
 /** Sensitive reads that are audited like changes. */
@@ -59,7 +63,10 @@ export function auditAction(method: string, routePath: string): AuditAction | nu
   const params = segs.filter((x) => x.startsWith(":"));
   const lastParam = params.length ? params[params.length - 1]!.slice(1) : null;
   const named = NAMED[key];
-  if (named) return { action: named, targetType: named.split(".")[0]!, targetParam: lastParam };
+  if (named) {
+    const [action, target] = typeof named === "string" ? [named, lastParam] : named;
+    return { action, targetType: action.split(".")[0]!, targetParam: target };
+  }
   const last = segs[segs.length - 1]!;
   const prev = segs[segs.length - 2];
   // An operation on one resource: POST /things/:id/<operation>.

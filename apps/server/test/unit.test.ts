@@ -198,3 +198,41 @@ describe("model registry", () => {
     expect(b.calls).toBe(0);
   });
 });
+
+describe("run traces", () => {
+  it("folds events into sources, tool timings and a timeline", async () => {
+    const { toTrace } = await import("../src/runs/trace.js");
+    const t0 = new Date("2026-01-01T00:00:00Z");
+    const at = (ms: number) => new Date(t0.getTime() + ms);
+    const ev = (seq: number, type: string, ms: number, data: Record<string, unknown> = {}) => ({ run_id: "run_1", seq, type, data, created_at: at(ms) });
+    const src = (n: number) => ({ index: n, documentId: `doc_${n}`, title: `Doc ${n}`, url: null, snippet: "…" });
+    const trace = toTrace(
+      {
+        id: "run_1", status: "completed", user_message_id: "msg_q", assistant_message_id: "msg_a", model_alias: "standard", deployment_id: "anthropic-main",
+        assistant_version: 7, created_at: t0, started_at: at(10), finished_at: at(1510), first_token_ms: 400, input_tokens: 900, output_tokens: 120,
+        retrieval_query: "refund policy", guardrail: null, guardrail_detail: null, error_code: null, error_message: null,
+      },
+      [
+        ev(1, "run.started", 10),
+        ev(2, "retrieval.completed", 60, { sources: [src(1), src(2)] }),
+        ev(3, "tool.started", 100, { callId: "call_a", name: "lookup_order", title: "Look up order" }),
+        ev(4, "tool.completed", 350, { callId: "call_a", name: "lookup_order", isError: false }),
+        ev(5, "tool.input_required", 400, { callId: "call_b", name: "refund", title: "Refund", kind: "confirmation" }),
+        ev(6, "tool.completed", 900, { callId: "call_b", name: "refund", isError: true }),
+        ev(7, "retrieval.completed", 950, { sources: [src(3)] }),
+        ev(8, "message.delta", 1000, { text: "a" }),
+        ev(9, "message.delta", 1010, { text: "b" }),
+        ev(10, "handoff.requested", 1400, { message: "x" }),
+        ev(11, "message.completed", 1500),
+      ],
+    );
+    expect(trace).toMatchObject({ durationMs: 1500, firstTokenMs: 400, usage: { inputTokens: 900, outputTokens: 120 }, handoff: true, deltaCount: 2, assistantVersion: 7 });
+    expect(trace.sources.map((s) => s.documentId)).toEqual(["doc_3"]);
+    expect(trace.tools).toEqual([
+      { callId: "call_a", name: "lookup_order", title: "Look up order", kind: "server", startedMs: 90, durationMs: 250, isError: false },
+      { callId: "call_b", name: "refund", title: "Refund", kind: "confirmation", startedMs: 390, durationMs: 500, isError: true },
+    ]);
+    expect(trace.timeline.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 10, 11]);
+    expect(trace.timeline.at(-1)).toEqual({ seq: 11, type: "message.completed", atMs: 1490 });
+  });
+});

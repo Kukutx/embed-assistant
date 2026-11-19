@@ -2,6 +2,14 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.9
+
+Change with confidence.
+
+- **Assistant version history**: every save is a numbered version with who saved it, an optional change note and the fields that changed. Compare any version with the live one, restore it (saved as a new version; deleted sources, actions and MCP servers are left out), and **evaluate any saved version** (`{"version": n}` on a run) to see whether a change helped. `GET /v1/admin/assistants/{id}/versions`, `GET .../versions/{n}`, `POST .../versions/{n}/restore` (audited as `assistants.restore-version`). Existing assistants start with their current configuration as the first recorded version.
+- **Answer inspector**: *Details* on every answer in the console (transcripts and inbox) shows the passages given to the model, the search query, each tool call with its kind, duration and result, tokens, time to first word, the deployment that answered, the assistant version, guardrail or error, and the event timeline. `GET /v1/admin/conversations/{id}/runs`.
+- Evaluation runs record `pinnedVersion`; the console's *Run* panel has a version picker.
+
 ## 1.0.8
 
 Ready to operate at scale.

@@ -27,6 +27,7 @@ describe("audit naming and redaction", () => {
     expect(a("DELETE", "/v1/admin/subjects/:subjectId")).toEqual({ action: "subjects.erase", targetType: "subjects", targetParam: "subjectId" });
     expect(a("PATCH", "/v1/admin/settings")).toEqual({ action: "settings.update", targetType: "settings", targetParam: null });
     expect(a("GET", "/v1/admin/conversations/export")?.action).toBe("conversations.export");
+    expect(a("POST", "/v1/admin/assistants/:id/versions/:version/restore")).toEqual({ action: "assistants.restore-version", targetType: "assistants", targetParam: "id" });
     expect(a("GET", "/v1/admin/widgets/:id")).toBeNull();
     expect(a("POST", "/v1/sessions")).toBeNull();
   });

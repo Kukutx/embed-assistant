@@ -239,7 +239,7 @@ async function assistants(main) {
                 h(
                   "tr",
                   {},
-                  h("td", {}, h("strong", { text: a.name }), h("div", { class: "muted small mono", text: a.id })),
+                  h("td", {}, h("strong", { text: a.name }), h("div", { class: "muted small mono", text: `${a.id} · v${a.version}` })),
                   h("td", {}, h("code", { text: a.modelAlias })),
                   h("td", { text: a.sourceIds.map((id) => sources.find((s) => s.id === id)?.name ?? id).join(", ") || "—" }),
                   h("td", { text: a.groundedOnly ? "Sources only" : "Sources + general" }),
@@ -248,6 +248,7 @@ async function assistants(main) {
                     "td",
                     { class: "row" },
                     h("button", { class: "btn", onclick: () => edit(a), text: "Edit" }),
+                    h("button", { class: "btn", onclick: () => versionHistory(a, { sources, actionList, mcpList }), text: "History" }),
                     h("button", {
                       class: "btn danger",
                       text: "Delete",
@@ -292,6 +293,7 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
     promptInjection: h("input", { type: "checkbox", checked: a?.guardrails?.promptInjection ?? false }),
     checkAnswers: h("input", { type: "checkbox", checked: a?.guardrails?.checkAnswers ?? true }),
     refusalMessage: h("input", { value: a?.guardrails?.refusalMessage ?? "Sorry, I can't help with that. Is there something else I can help you with?", maxlength: 1000 }),
+    changeNote: h("input", { maxlength: 500, placeholder: "What changed and why (optional)" }),
   };
   const actionChecks = actionList.map((x) => {
     const c = h("input", { type: "checkbox", value: x.id, checked: a?.actionIds?.includes(x.id) });
@@ -344,6 +346,7 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
             refusalMessage: f.refusalMessage.value.trim() || undefined,
             ...(a?.guardrails?.supportMessage ? { supportMessage: a.guardrails.supportMessage } : {}),
           },
+          ...(f.changeNote.value.trim() ? { changeNote: f.changeNote.value.trim() } : {}),
         };
         try {
           await api(a ? "PATCH" : "POST", a ? `/assistants/${a.id}` : "/assistants", body);
@@ -391,10 +394,102 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
       h("label", { class: "check" }, f.clientTools, "Accept tools registered by the host page"),
       h("label", { class: "check" }, f.redactPii, "Mask e-mails, phone numbers, card numbers and IBANs"),
     ),
+    field("Change note", f.changeNote, "Kept in the version history. Every save is a new version you can compare, evaluate and restore."),
     msg,
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: a ? "Save" : "Create" })),
   );
   const dlg = modal(a ? `Edit ${a.name}` : "New assistant", form);
+}
+
+const CONFIG_LABELS = {
+  name: "Name", instructions: "Instructions", modelAlias: "Model alias", greeting: "Greeting", suggestions: "Suggested questions",
+  placeholder: "Input placeholder", disclaimer: "Disclaimer", sourceIds: "Knowledge sources", groundedOnly: "Sources only",
+  actionIds: "Actions", mcpServerIds: "MCP servers", handoff: "Human handoff", followUps: "Follow-up suggestions",
+  queryRewrite: "Query rewriting", agenticSearch: "Extra searches", clientTools: "Page tools", redactPii: "Mask personal data", guardrails: "Guardrails",
+};
+
+/** A config value as readable text: ids become names, objects become indented JSON. */
+function configText(key, value, refs) {
+  const named = { sourceIds: refs.sources, actionIds: refs.actionList, mcpServerIds: refs.mcpList }[key];
+  if (named) return value.length ? value.map((id) => { const x = named.find((n) => n.id === id); return x ? x.title ?? x.name : `${id} (deleted)`; }).join("\n") : "—";
+  if (value === null || value === "") return "—";
+  if (typeof value === "boolean") return value ? "on" : "off";
+  if (Array.isArray(value)) return value.length ? value.join("\n") : "—";
+  if (typeof value === "object") return JSON.stringify(value, null, 2);
+  return String(value);
+}
+
+async function versionHistory(a, refs) {
+  const body = h("div", {}, h("p", { class: "muted", text: "Loading…" }));
+  const dlg = modal(`History of ${a.name}`, body, { wide: true });
+  const canWrite = allowed("config:write");
+  const list = await api("GET", `/assistants/${a.id}/versions`);
+  const current = list.items[0]?.version;
+  body.replaceChildren(
+    h("p", { class: "muted small", text: "Every save is kept. Compare any version with the live one, evaluate it on a suite (Evaluations → Run → Version), or restore it as a new version." }),
+    h(
+      "table",
+      {},
+      h("thead", {}, h("tr", {}, ["Version", "Saved", "Changed", ""].map((t) => h("th", { text: t })))),
+      h(
+        "tbody",
+        {},
+        list.items.map((v) =>
+          h(
+            "tr",
+            {},
+            h("td", {}, h("strong", { text: `v${v.version}` }), v.version === current ? h("span", { class: "badge ok", text: " live" }) : null),
+            h("td", { class: "small" }, fmtDate(v.createdAt), h("div", { class: "muted", text: v.createdBy ?? "" })),
+            h(
+              "td",
+              { class: "small" },
+              v.note ? h("div", { text: v.note }) : null,
+              h("div", { class: "row", style: "gap:4px;flex-wrap:wrap" }, v.changes.length ? v.changes.map((c) => h("span", { class: "badge", text: CONFIG_LABELS[c] ?? c })) : h("span", { class: "muted", text: v.version === list.items.at(-1)?.version ? "first recorded version" : "no field changed" })),
+            ),
+            h(
+              "td",
+              { class: "row" },
+              v.version === current ? null : h("button", { class: "btn", text: "Compare", onclick: () => compareVersion(a, v.version, current, refs) }),
+              v.version === current || !canWrite
+                ? null
+                : h("button", {
+                    class: "btn",
+                    text: "Restore",
+                    onclick: async () => {
+                      if (!confirm(`Restore v${v.version} of "${a.name}"? It is saved as a new version and goes live immediately.`)) return;
+                      try {
+                        await api("POST", `/assistants/${a.id}/versions/${v.version}/restore`, {});
+                        dlg.close();
+                        route();
+                      } catch (err) {
+                        alert(errorText(err));
+                      }
+                    },
+                  }),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+async function compareVersion(a, version, current, refs) {
+  const [old, live] = await Promise.all([api("GET", `/assistants/${a.id}/versions/${version}`), api("GET", `/assistants/${a.id}/versions/${current}`)]);
+  const keys = Object.keys(CONFIG_LABELS).filter((k) => JSON.stringify(old.config[k]) !== JSON.stringify(live.config[k]));
+  const cell = (k, v) => h("td", {}, h("pre", { class: "small", style: "white-space:pre-wrap;margin:0;max-height:240px;overflow:auto", text: configText(k, v, refs) }));
+  modal(
+    `v${version} compared with live v${current}`,
+    keys.length
+      ? h(
+          "table",
+          {},
+          h("thead", {}, h("tr", {}, ["Field", `v${version}`, `v${current} (live)`].map((t) => h("th", { text: t })))),
+          h("tbody", {}, keys.map((k) => h("tr", {}, h("td", { text: CONFIG_LABELS[k] }), cell(k, old.config[k]), cell(k, live.config[k])))),
+        )
+      : h("p", { class: "muted", text: "Same configuration as the live version." }),
+    { wide: true },
+  );
 }
 
 async function widgets(main) {
@@ -838,17 +933,107 @@ async function conversations(main) {
 async function transcript(c) {
   const body = h("div", {}, h("p", { class: "muted", text: "Loading…" }));
   modal(c.title || "Conversation", body, { wide: true });
-  const page = await api("GET", `/conversations/${c.id}/messages?limit=200`);
+  const [page, traces] = await Promise.all([api("GET", `/conversations/${c.id}/messages?limit=200`), runTraces(c.id)]);
   body.replaceChildren(
     ...page.items.map((m) =>
       h(
         "div",
         { class: "msg" },
-        h("div", { class: "who" }, m.role, m.feedback ? h("span", { class: `badge ${m.feedback === "up" ? "ok" : "bad"}`, text: m.feedback === "up" ? " helpful" : " not helpful" }) : null, m.status !== "complete" ? h("span", { class: "badge warn", text: m.status }) : null),
+        h(
+          "div",
+          { class: "who" },
+          m.role,
+          m.feedback ? h("span", { class: `badge ${m.feedback === "up" ? "ok" : "bad"}`, text: m.feedback === "up" ? " helpful" : " not helpful" }) : null,
+          m.status !== "complete" ? h("span", { class: "badge warn", text: m.status }) : null,
+          traceButton(traces.get(m.id)),
+        ),
         h("div", { class: "body", text: m.content }),
         m.citations.length ? h("div", { class: "small muted", text: `Sources: ${m.citations.map((x) => `[${x.index}] ${x.title}`).join(" · ")}` }) : null,
       ),
     ),
+  );
+}
+
+/** Traces of a conversation's answers, by answer message id. */
+async function runTraces(conversationId) {
+  const r = await api("GET", `/conversations/${conversationId}/runs`).catch(() => ({ items: [] }));
+  return new Map(r.items.filter((t) => t.answerMessageId).map((t) => [t.answerMessageId, t]));
+}
+
+function traceButton(t) {
+  return t ? h("button", { class: "btn small", style: "margin-left:8px;padding:2px 8px", type: "button", text: "Details", onclick: () => traceDialog(t) }) : null;
+}
+
+const ms = (n) => (n === null || n === undefined ? "—" : n < 1000 ? `${n} ms` : `${(n / 1000).toFixed(1)} s`);
+
+/** How one answer was produced: model, timings, tokens, passages, tools and the event timeline. */
+function traceDialog(t) {
+  const stat = (k, v) => h("div", { class: "card stat" }, h("div", { class: "v", style: "font-size:18px", text: v }), h("div", { class: "k", text: k }));
+  const section = (title, content) => h("div", { style: "margin-top:16px" }, h("h3", { style: "margin:0 0 6px", text: title }), content);
+  modal(
+    "Answer details",
+    h(
+      "div",
+      {},
+      h(
+        "div",
+        { class: "grid" },
+        stat("Total time", ms(t.durationMs)),
+        stat("First word", ms(t.firstTokenMs)),
+        stat("Tokens in / out", `${t.usage.inputTokens} / ${t.usage.outputTokens}`),
+        stat("Model", t.deploymentId ? `${t.modelAlias} → ${t.deploymentId}` : t.modelAlias),
+        stat("Assistant version", `v${t.assistantVersion}`),
+      ),
+      t.error ? notice(`${t.error.code}: ${t.error.message ?? ""}`, true) : "",
+      t.guardrail ? notice(`Stopped by a guardrail: ${GUARDRAIL_LABELS[t.guardrail.kind] ?? t.guardrail.kind}${t.guardrail.detail ? ` (${t.guardrail.detail})` : ""}`) : "",
+      t.handoff ? notice("Handed off to a person.") : "",
+      section(
+        "Knowledge used",
+        h(
+          "div",
+          {},
+          t.retrievalQuery ? h("p", { class: "small muted" }, "Searched for ", h("code", { text: t.retrievalQuery })) : "",
+          t.sources.length
+            ? h("ol", { class: "small" }, t.sources.map((x) => h("li", {}, h("strong", { text: x.title }), x.url ? h("div", {}, h("a", { href: x.url, target: "_blank", rel: "noopener", text: x.url })) : "", h("div", { class: "muted", text: x.snippet }))))
+            : h("p", { class: "muted small", text: "No passages were given to the model." }),
+        ),
+      ),
+      section(
+        "Tools",
+        t.tools.length
+          ? h(
+              "table",
+              {},
+              h("thead", {}, h("tr", {}, ["Tool", "Kind", "Started", "Took", "Result"].map((x) => h("th", { text: x })))),
+              h(
+                "tbody",
+                {},
+                t.tools.map((x) =>
+                  h(
+                    "tr",
+                    {},
+                    h("td", {}, x.title ?? x.name, h("div", { class: "muted small mono", text: x.name })),
+                    h("td", { class: "small", text: { server: "ran on the server", confirmation: "asked the visitor", client: "ran in the page" }[x.kind] }),
+                    h("td", { class: "small", text: `+${ms(x.startedMs)}` }),
+                    h("td", { class: "small", text: ms(x.durationMs) }),
+                    h("td", {}, x.isError === null ? h("span", { class: "badge warn", text: "no result" }) : h("span", { class: `badge ${x.isError ? "bad" : "ok"}`, text: x.isError ? "error" : "ok" })),
+                  ),
+                ),
+              ),
+            )
+          : h("p", { class: "muted small", text: "No tools were called." }),
+      ),
+      section(
+        "Timeline",
+        h(
+          "table",
+          { class: "small" },
+          h("tbody", {}, t.timeline.map((e) => h("tr", {}, h("td", { class: "mono", style: "width:90px", text: `+${ms(e.atMs)}` }), h("td", { class: "mono", text: e.type })))),
+        ),
+      ),
+      h("p", { class: "muted small", text: `${t.deltaCount} text chunks streamed · run ${t.runId}` }),
+    ),
+    { wide: true },
   );
 }
 
@@ -1508,12 +1693,13 @@ async function conversationPane(pane, id, conv, canReply, refresh) {
     const msgs = await api("GET", `/conversations/${id}/messages?limit=200`);
     if (msgs.items.length === lastCount) return;
     lastCount = msgs.items.length;
+    const traces = await runTraces(id);
     thread.replaceChildren(
       ...msgs.items.map((m) =>
         h(
           "div",
           { class: `bubble ${m.role === "user" ? "visitor" : m.author ? "person" : "ai"}` },
-          h("div", { class: "who", text: m.role === "user" ? "Visitor" : m.author ? m.author.name : "Assistant" }),
+          h("div", { class: "who" }, m.role === "user" ? "Visitor" : m.author ? m.author.name : "Assistant", traceButton(traces.get(m.id))),
           h("div", { class: "body", text: m.content }),
           h("div", { class: "small muted", text: fmtDate(m.createdAt) }),
         ),
@@ -1993,10 +2179,22 @@ async function evalSuite(main, id) {
   const judge = h("input", { type: "checkbox", checked: true });
   const target = h("select", {}, assistantsList.map((a) => h("option", { value: a.id, text: a.id === suite.assistantId ? `${a.name} (suite default)` : a.name })));
   target.value = suite.assistantId;
+  const version = h("select", {}, h("option", { value: "", text: "Live" }));
+  const loadVersions = async () => {
+    version.replaceChildren(h("option", { value: "", text: "Live" }));
+    const v = await api("GET", `/assistants/${target.value}/versions`).catch(() => ({ items: [] }));
+    version.append(...v.items.slice(1).map((x) => h("option", { value: String(x.version), text: `v${x.version}${x.note ? ` · ${x.note.slice(0, 40)}` : ""}` })));
+  };
+  target.addEventListener("change", loadVersions);
+  if (canWrite) loadVersions();
   const runMsg = h("div");
   const start = async () => {
     try {
-      await api("POST", `/evals/${id}/runs`, { judge: judge.checked, ...(target.value !== suite.assistantId ? { assistantId: target.value } : {}) });
+      await api("POST", `/evals/${id}/runs`, {
+        judge: judge.checked,
+        ...(target.value !== suite.assistantId ? { assistantId: target.value } : {}),
+        ...(version.value ? { version: Number(version.value) } : {}),
+      });
       reload();
     } catch (err) {
       runMsg.replaceChildren(notice(errorText(err), true));
@@ -2017,8 +2215,8 @@ async function evalSuite(main, id) {
           "div",
           { class: "card" },
           h("h2", { text: "Run" }),
-          h("div", { class: "row" }, h("label", { class: "check" }, "Assistant", target), h("label", { class: "check" }, judge, "Score reference answers with a model judge"), h("button", { class: "btn primary", text: active ? "Running…" : "Run suite", disabled: !!active || !cases.items.length, onclick: start }), active ? h("button", { class: "btn danger", text: "Cancel", onclick: async () => { await api("POST", `/eval-runs/${active.id}/cancel`); reload(); } }) : null),
-          h("p", { class: "muted small", text: "Runs answer every case like a visitor would (no conversations are stored; actions, MCP and page tools never run) and use model tokens. Pick another assistant to compare a changed copy on the same cases." }),
+          h("div", { class: "row" }, h("label", { class: "check" }, "Assistant", target), h("label", { class: "check" }, "Version", version), h("label", { class: "check" }, judge, "Score reference answers with a model judge"), h("button", { class: "btn primary", text: active ? "Running…" : "Run suite", disabled: !!active || !cases.items.length, onclick: start }), active ? h("button", { class: "btn danger", text: "Cancel", onclick: async () => { await api("POST", `/eval-runs/${active.id}/cancel`); reload(); } }) : null),
+          h("p", { class: "muted small", text: "Runs answer every case like a visitor would (no conversations are stored; actions, MCP and page tools never run) and use model tokens. Pick an earlier version to check whether a change helped, or another assistant to compare a changed copy on the same cases." }),
           runMsg,
         )
       : "",
@@ -2039,7 +2237,7 @@ async function evalSuite(main, id) {
                   "tr",
                   {},
                   h("td", { class: "small", text: fmtDate(r.createdAt) }, h("div", { class: "muted", text: r.createdBy ?? "" })),
-                  h("td", { class: "small", text: `${names.get(r.assistantId) ?? r.assistantId} v${r.assistantVersion}` }),
+                  h("td", { class: "small", text: `${names.get(r.assistantId) ?? r.assistantId} v${r.assistantVersion}${r.pinnedVersion ? " (saved version)" : ""}` }),
                   h("td", {}, runBadge(r), r.error ? h("div", { class: "small bad", text: r.error }) : null),
                   h("td", { text: pctOf(r.score) }),
                   h("td", { class: "small muted", text: `${r.inputTokens + r.outputTokens}` }),

@@ -19,6 +19,7 @@ import { newId } from "../lib/ids.js";
 import { metrics } from "../lib/metrics.js";
 import { iso, isoOrNull } from "../lib/time.js";
 import type { ModelRegistry } from "../models/registry.js";
+import { getVersion, rowAtVersion } from "../assistants/versions.js";
 import { auxAlias } from "../runs/assist.js";
 import { answerOnce, type AnswerResult } from "../runs/answer.js";
 
@@ -66,6 +67,7 @@ export interface RunRow {
   suite_id: string;
   assistant_id: string;
   assistant_version: number;
+  pinned_version: boolean;
   status: EvalRun["status"];
   judge: boolean;
   total: number;
@@ -119,6 +121,7 @@ export const toEvalRun = (r: RunRow): EvalRun => ({
   suiteId: r.suite_id,
   assistantId: r.assistant_id,
   assistantVersion: r.assistant_version,
+  pinnedVersion: r.pinned_version,
   status: r.status,
   total: r.total,
   completed: Number(r.completed ?? 0),
@@ -277,11 +280,11 @@ export async function deleteCase(sql: Sql, suiteId: string, caseId: string): Pro
 
 export async function createRun(
   sql: Sql,
-  p: { suite: SuiteRow; assistantId: string; assistantVersion: number; judge: boolean; createdBy: string | null },
+  p: { suite: SuiteRow; assistantId: string; assistantVersion: number; pinned: boolean; judge: boolean; createdBy: string | null },
 ): Promise<RunRow> {
   const [row] = await sql<RunRow[]>`
-    INSERT INTO eval_runs (id, tenant_id, suite_id, assistant_id, assistant_version, judge, total, created_by)
-    VALUES (${newId("evr")}, ${p.suite.tenant_id}, ${p.suite.id}, ${p.assistantId}, ${p.assistantVersion}, ${p.judge},
+    INSERT INTO eval_runs (id, tenant_id, suite_id, assistant_id, assistant_version, pinned_version, judge, total, created_by)
+    VALUES (${newId("evr")}, ${p.suite.tenant_id}, ${p.suite.id}, ${p.assistantId}, ${p.assistantVersion}, ${p.pinned}, ${p.judge},
             (SELECT count(*) FROM eval_cases WHERE suite_id = ${p.suite.id}), ${p.createdBy})
     RETURNING *`;
   return row!;
@@ -432,8 +435,14 @@ export async function runEvalJob(deps: EvalDeps, job: JobRow): Promise<void> {
   const [run] = await sql<RunRow[]>`SELECT * FROM eval_runs WHERE id = ${runId}`;
   if (!run || run.status === "completed" || run.status === "failed" || run.status === "cancelled") return;
   try {
-    const assistant = await getAssistant(sql, run.tenant_id, run.assistant_id);
-    if (!assistant) throw new Error("assistant was deleted");
+    const current = await getAssistant(sql, run.tenant_id, run.assistant_id);
+    if (!current) throw new Error("assistant was deleted");
+    let assistant = current;
+    if (run.pinned_version) {
+      const saved = await getVersion(sql, run.tenant_id, run.assistant_id, run.assistant_version);
+      if (!saved) throw new Error(`version ${run.assistant_version} is not in the assistant's history`);
+      assistant = rowAtVersion(current, saved.config, saved.version);
+    }
     await sql`UPDATE eval_runs SET status = 'running', started_at = coalesce(started_at, now()), assistant_version = ${assistant.version} WHERE id = ${runId}`;
     const cases = await sql<CaseRow[]>`
       SELECT * FROM eval_cases WHERE suite_id = ${run.suite_id} AND created_at <= ${run.created_at}

@@ -93,9 +93,35 @@ curl $BASE/v1/admin/eval-runs/evr_... -H "authorization: Bearer $KEY"
 
 Every result carries `previous`: the same case in the previous completed run
 of the suite, so regressions (passed before, fails now) and fixes stand out;
-the console sorts failures first and labels them. To compare two
-configurations, copy the assistant, change the copy, and run the suite with
-`{"assistantId": "<copy>"}`.
+the console sorts failures first and labels them.
+
+### Versions
+
+Every save of an assistant is kept as a numbered **version** with who saved it,
+an optional `changeNote` (send it with `POST`/`PATCH /v1/admin/assistants`) and
+the fields that changed. `GET /v1/admin/assistants/{id}/versions` lists them;
+`POST .../versions/{n}/restore` makes an old configuration live again as a new
+version (history is never rewritten; knowledge sources, actions and MCP
+servers deleted since are left out and the note says so).
+
+To check whether a change helped, run the suite on an earlier version and
+compare with a run on the live one:
+
+```bash
+curl -X POST $BASE/v1/admin/evals/evs_.../runs -H "authorization: Bearer $KEY" -H 'content-type: application/json' -d '{"version": 12}'
+```
+
+The run answers with the saved configuration of version 12 (and today's
+knowledge); `pinnedVersion` is `true` on such runs. To compare two different
+assistants, run the suite with `{"assistantId": "<other>"}`.
+
+### Inspecting an answer
+
+In the console, every answer in a transcript has **Details**: the passages
+given to the model, the search query, each tool call with its duration and
+result, tokens, time to first word, the model deployment that answered, the
+assistant version, any guardrail or error, and the timeline of events
+(`GET /v1/admin/conversations/{id}/runs`).
 
 **In CI**: start a run after deploying a change, poll `GET /v1/admin/eval-runs/{id}`
 until `status` is `completed`, and fail the pipeline if `passed / total` or

@@ -142,10 +142,31 @@ export const AssistantInput = z.object({
   clientTools: AssistantFields.clientTools.default(true),
   redactPii: AssistantFields.redactPii.default(false),
   guardrails: GuardrailConfig.default(DEFAULT_GUARDRAILS),
+  changeNote: z.string().trim().max(300).optional(),
 });
 export type AssistantInput = z.infer<typeof AssistantInput>;
 /** PATCH body: only the fields present are changed (no defaults are applied). */
-export const AssistantPatch = z.object(AssistantFields).partial();
+export const AssistantPatch = z.object(AssistantFields).partial().extend({
+  /** Why it changed; kept in the version history. */
+  changeNote: z.string().trim().max(300).optional(),
+});
+
+/** An assistant's configuration as stored in its version history. */
+export const AssistantConfig = z.object(AssistantFields);
+export type AssistantConfig = z.infer<typeof AssistantConfig>;
+export const AssistantVersion = z.object({
+  version: z.number().int(),
+  createdAt: Timestamp,
+  /** Who saved it (key or person name); null for versions from before 1.0.9. */
+  createdBy: z.string().nullable(),
+  note: z.string().nullable(),
+  /** Fields that differ from the previous version. */
+  changes: z.array(z.string()),
+});
+export type AssistantVersion = z.infer<typeof AssistantVersion>;
+export const AssistantVersionList = z.object({ items: z.array(AssistantVersion) });
+export const AssistantVersionDetail = AssistantVersion.extend({ config: AssistantConfig });
+export const RestoreVersionInput = z.object({ note: z.string().trim().max(300).optional() });
 
 export const Origin = z
   .string()
@@ -782,6 +803,8 @@ export const EvalRun = z.object({
   assistantId: Id,
   /** Assistant configuration version the run used. */
   assistantVersion: z.number().int(),
+  /** True when the run was asked for that version explicitly (otherwise it used the current configuration). */
+  pinnedVersion: z.boolean(),
   status: EvalRunStatus,
   total: z.number().int(),
   completed: z.number().int(),
@@ -803,6 +826,8 @@ export const EvalRunList = z.object({ items: z.array(EvalRun) });
 export const EvalRunInput = z.object({
   /** Run the suite against another assistant (e.g. a copy with new instructions) to compare. Default: the suite's assistant. */
   assistantId: Id.optional(),
+  /** Run against a saved version of the assistant from its history instead of the current configuration. */
+  version: z.number().int().positive().optional(),
   /** Score reference answers with a model judge (uses model tokens). */
   judge: z.boolean().default(true),
 });
@@ -897,3 +922,39 @@ export const TenantPatch = z.object({
 }).partial();
 export const CreatedTenant = z.object({ tenant: Tenant, adminKey: z.string() });
 export const PlatformKeyInput = z.object({ name: z.string().trim().min(1).max(100).default("break-glass") });
+
+/** What happened while one answer was produced, for debugging in the console. */
+export const RunTrace = z.object({
+  runId: Id,
+  status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
+  questionMessageId: Id,
+  answerMessageId: Id.nullable(),
+  modelAlias: z.string(),
+  deploymentId: z.string().nullable(),
+  assistantVersion: z.number().int(),
+  createdAt: Timestamp,
+  durationMs: z.number().int().nullable(),
+  firstTokenMs: z.number().int().nullable(),
+  usage: z.object({ inputTokens: z.number().int(), outputTokens: z.number().int() }),
+  retrievalQuery: z.string().nullable(),
+  /** Passages given to the model (after extra searches, the final set). */
+  sources: z.array(z.object({ index: z.number().int(), documentId: z.string(), title: z.string(), url: z.string().nullable(), snippet: z.string() })),
+  tools: z.array(z.object({
+    callId: z.string(),
+    name: z.string(),
+    title: z.string().nullable(),
+    /** Asked the visitor first (confirmation) or ran in the page (client). */
+    kind: z.enum(["server", "confirmation", "client"]),
+    startedMs: z.number().int(),
+    durationMs: z.number().int().nullable(),
+    isError: z.boolean().nullable(),
+  })),
+  handoff: z.boolean(),
+  guardrail: z.object({ kind: GuardrailKind, detail: z.string().nullable() }).nullable(),
+  error: z.object({ code: z.string(), message: z.string().nullable() }).nullable(),
+  /** Every event except text deltas, with its time from the start of the run. */
+  timeline: z.array(z.object({ seq: z.number().int(), type: z.string(), atMs: z.number().int() })),
+  deltaCount: z.number().int(),
+});
+export type RunTrace = z.infer<typeof RunTrace>;
+export const RunTraceList = z.object({ items: z.array(RunTrace) });

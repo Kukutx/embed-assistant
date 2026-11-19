@@ -5,6 +5,8 @@ import {
   Assistant,
   AssistantInput,
   AssistantPatch,
+  AssistantVersionDetail,
+  AssistantVersionList,
   DocumentInput,
   KnowledgeDocument,
   KnowledgeSource,
@@ -14,12 +16,16 @@ import {
   HandoffState,
   MessageList,
   ModelAliasInfo,
+  RestoreVersionInput,
+  RunTraceList,
   UsageSummary,
   Widget,
   WidgetInput,
   WidgetPatch,
   WidgetSecret,
 } from "@embed-assistant/protocol";
+import { getVersion, listVersions } from "../../assistants/versions.js";
+import { conversationTraces } from "../../runs/trace.js";
 import {
   adminGetConversation,
   adminListConversations,
@@ -114,7 +120,7 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
   route(app, { method: "post", path: "/v1/admin/assistants", tag: A, summary: "Create an assistant", auth: "admin", body: AssistantInput, response: { status: 201, schema: Assistant } },
     async (c, { body }) => {
       await validateAssistantRefs(tid(c), body);
-      return c.json(toAssistant(await createAssistant(sql, tid(c), body)), 201);
+      return c.json(toAssistant(await createAssistant(sql, tid(c), body, { by: actorName(c), note: body.changeNote })), 201);
     });
 
   route(app, { method: "get", path: "/v1/admin/assistants/{id}", tag: A, summary: "Get an assistant", auth: "admin", response: { status: 200, schema: Assistant } },
@@ -127,7 +133,50 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
   route(app, { method: "patch", path: "/v1/admin/assistants/{id}", tag: A, summary: "Update an assistant", auth: "admin", body: AssistantPatch, response: { status: 200, schema: Assistant } },
     async (c, { body }) => {
       await validateAssistantRefs(tid(c), body);
-      const a = await updateAssistant(sql, tid(c), param(c, "id"), stripUndefined(body));
+      const { changeNote, ...patch } = body;
+      const a = await updateAssistant(sql, tid(c), param(c, "id"), stripUndefined(patch), { by: actorName(c), note: changeNote });
+      if (!a) throw notFound("assistant");
+      return c.json(toAssistant(a));
+    });
+
+  route(app, {
+      method: "get", path: "/v1/admin/assistants/{id}/versions", tag: A, summary: "Version history of an assistant (newest first)",
+      description: "Every saved configuration, who saved it, the note given, and which fields changed.",
+      auth: "admin", response: { status: 200, schema: AssistantVersionList },
+    },
+    async (c) => {
+      const a = await getAssistant(sql, tid(c), param(c, "id"));
+      if (!a) throw notFound("assistant");
+      return c.json({ items: await listVersions(sql, tid(c), a.id) });
+    });
+
+  route(app, { method: "get", path: "/v1/admin/assistants/{id}/versions/{version}", tag: A, summary: "One saved configuration", auth: "admin", response: { status: 200, schema: AssistantVersionDetail } },
+    async (c) => {
+      const v = await getVersion(sql, tid(c), param(c, "id"), Number.parseInt(param(c, "version"), 10) || 0);
+      if (!v) throw notFound("version");
+      return c.json(v);
+    });
+
+  route(app, {
+      method: "post", path: "/v1/admin/assistants/{id}/versions/{version}/restore", tag: A, summary: "Restore a saved configuration",
+      description: "Saves it as a new version (history is never rewritten). Knowledge sources, actions and MCP servers deleted since are left out.",
+      auth: "admin", body: RestoreVersionInput, response: { status: 200, schema: Assistant },
+    },
+    async (c, { body }) => {
+      const n = Number.parseInt(param(c, "version"), 10) || 0;
+      const v = await getVersion(sql, tid(c), param(c, "id"), n);
+      if (!v) throw notFound("version");
+      const cfg = v.config;
+      if (!s.models.hasAlias(cfg.modelAlias)) {
+        throw badRequest(`version ${n} uses the model alias "${cfg.modelAlias}", which is no longer configured`, { aliases: s.models.describe().map((m) => m.alias) });
+      }
+      const existing = async (table: "knowledge_sources" | "actions" | "mcp_servers", ids: string[]) =>
+        ids.length ? new Set((await sql<{ id: string }[]>`SELECT id FROM ${sql(table)} WHERE tenant_id = ${tid(c)} AND id = ANY(${sql.array(ids)})`).map((r) => r.id)) : new Set<string>();
+      const [srcs, acts, mcps] = await Promise.all([existing("knowledge_sources", cfg.sourceIds), existing("actions", cfg.actionIds), existing("mcp_servers", cfg.mcpServerIds)]);
+      const next = { ...cfg, sourceIds: cfg.sourceIds.filter((x) => srcs.has(x)), actionIds: cfg.actionIds.filter((x) => acts.has(x)), mcpServerIds: cfg.mcpServerIds.filter((x) => mcps.has(x)) };
+      const dropped = cfg.sourceIds.length + cfg.actionIds.length + cfg.mcpServerIds.length - next.sourceIds.length - next.actionIds.length - next.mcpServerIds.length;
+      const note = body.note ?? `Restored version ${n}${dropped ? ` (left out ${dropped} deleted source/action/MCP reference${dropped > 1 ? "s" : ""})` : ""}`;
+      const a = await updateAssistant(sql, tid(c), param(c, "id"), next, { by: actorName(c), note });
       if (!a) throw notFound("assistant");
       return c.json(toAssistant(a));
     });
@@ -343,6 +392,17 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
       return c.json({ items: items.map(toMessage), nextCursor: hasMore ? (items[0]?.id ?? null) : null });
     });
 
+  route(app, {
+      method: "get", path: "/v1/admin/conversations/{id}/runs", tag: A, summary: "Inspect how each answer was produced",
+      description: "One trace per answer (the latest 100): passages given to the model, tools called and how long they took, tokens, model deployment, assistant version, guardrail and errors, and a timeline of events.",
+      auth: "admin", response: { status: 200, schema: RunTraceList },
+    },
+    async (c) => {
+      const conv = await adminGetConversation(sql, tid(c), param(c, "id"));
+      if (!conv) throw notFound("conversation");
+      return c.json({ items: await conversationTraces(sql, tid(c), conv.id) });
+    });
+
   // ---------------------------------------------------------- models and usage
   route(app, { method: "get", path: "/v1/admin/models", tag: A, summary: "Model aliases and deployments", auth: "admin", response: { status: 200, schema: z.array(ModelAliasInfo) } },
     (c) => c.json(s.models.describe()));
@@ -375,6 +435,11 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
       };
       return c.json(body);
     });
+}
+
+function actorName(c: Context<AppEnv>): string | null {
+  const a = c.get("actor");
+  return a ? (a.name ?? a.email ?? a.id) : null;
 }
 
 function stripUndefined<T extends object>(o: T): Partial<T> {

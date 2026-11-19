@@ -5,6 +5,7 @@
 import type {
   AdminConversation,
   Assistant,
+  AssistantConfig,
   AssistantInput,
   Citation,
   Conversation,
@@ -279,7 +280,26 @@ export async function getAssistant(sql: Tx, tenantId: string, id: string): Promi
   return rows[0] ?? null;
 }
 
-export async function createAssistant(sql: Tx, tenantId: string, input: AssistantInput): Promise<AssistantRow> {
+/** Who saved a configuration, and why (kept in the version history). */
+export interface ChangeMeta {
+  by?: string | null | undefined;
+  note?: string | null | undefined;
+}
+
+/** The configurable part of an assistant (what the version history stores). */
+export function assistantConfig(r: AssistantRow): AssistantConfig {
+  const { id: _id, version: _v, createdAt: _c, updatedAt: _u, ...config } = toAssistant(r);
+  return config;
+}
+
+async function recordVersion(sql: Tx, r: AssistantRow, meta: ChangeMeta): Promise<void> {
+  await sql`
+    INSERT INTO assistant_versions (assistant_id, tenant_id, version, config, created_by, note)
+    VALUES (${r.id}, ${r.tenant_id}, ${r.version}, ${sql.json(assistantConfig(r) as never)}, ${meta.by ?? null}, ${meta.note ?? null})
+    ON CONFLICT DO NOTHING`;
+}
+
+export async function createAssistant(sql: Tx, tenantId: string, input: AssistantInput, meta: ChangeMeta = {}): Promise<AssistantRow> {
   const id = newId("ast");
   const rows = await sql<AssistantRow[]>`
     INSERT INTO assistants (id, tenant_id, name, instructions, model_alias, greeting, suggestions,
@@ -291,6 +311,7 @@ export async function createAssistant(sql: Tx, tenantId: string, input: Assistan
             ${sql.json(input.handoff as never)}, ${input.followUps}, ${input.queryRewrite}, ${input.agenticSearch},
             ${input.clientTools}, ${input.redactPii}, ${sql.json(input.guardrails as never)})
     RETURNING *`;
+  await recordVersion(sql, rows[0]!, meta);
   return rows[0]!;
 }
 
@@ -299,6 +320,7 @@ export async function updateAssistant(
   tenantId: string,
   id: string,
   patch: Partial<AssistantInput>,
+  meta: ChangeMeta = {},
 ): Promise<AssistantRow | null> {
   const current = await getAssistant(sql, tenantId, id);
   if (!current) return null;
@@ -334,6 +356,7 @@ export async function updateAssistant(
       version = version + 1, updated_at = now()
     WHERE tenant_id = ${tenantId} AND id = ${id}
     RETURNING *`;
+  if (rows[0]) await recordVersion(sql, rows[0], meta);
   return rows[0] ?? null;
 }
 
