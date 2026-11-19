@@ -834,7 +834,11 @@ class App {
       vm.phase = null;
       vm.error = this.errorText(err);
       vm.retryText = content;
-      this.ctx.emit("error", { code: err instanceof ApiError ? err.code : "unknown", message: vm.error });
+      this.ctx.emit("error", {
+        code: err instanceof ApiError ? err.code : "unknown",
+        message: vm.error,
+        ...(err instanceof ApiError && err.requestId ? { requestId: err.requestId } : {}),
+      });
     } finally {
       if (this.running?.cancelTimer) clearTimeout(this.running.cancelTimer);
       if (this.running?.vm === vm) this.running = null;

@@ -119,6 +119,7 @@ const VIEWS = {
   mcp: { title: "MCP servers", render: mcpServers },
   conversations: { title: "Conversations", render: conversations },
   webhooks: { title: "Webhooks", render: webhooks },
+  audit: { title: "Audit log", render: auditLog },
   settings: { title: "Settings", render: settings },
 };
 let pollTimer = null;
@@ -1148,7 +1149,7 @@ function mcpTest(x) {
 }
 
 // ------------------------------------------------------------------ webhooks
-const WEBHOOK_EVENTS = ["conversation.created", "message.completed", "feedback.submitted", "handoff.requested", "source.synced"];
+const WEBHOOK_EVENTS = ["conversation.created", "message.completed", "feedback.submitted", "handoff.requested", "source.synced", "audit.recorded"];
 
 async function webhooks(main) {
   const list = await api("GET", "/webhooks");
@@ -1346,6 +1347,60 @@ async function settings(main) {
       })(),
     ),
   );
+}
+
+// ------------------------------------------------------------------ audit log
+async function auditLog(main) {
+  const table = h("tbody");
+  const more = h("button", { class: "btn", text: "Load more", hidden: true });
+  const filter = h("input", { placeholder: "Filter: action (widgets, keys.create) or target id", style: "min-width:320px" });
+  let cursor = null;
+  const load = async (reset) => {
+    if (reset) {
+      cursor = null;
+      table.replaceChildren();
+    }
+    const q = filter.value.trim();
+    const by = !q ? "" : /^[a-z][a-z-]*(\.[a-z-]+)?$/.test(q) ? `&action=${encodeURIComponent(q)}` : `&targetId=${encodeURIComponent(q)}`;
+    const page = await api("GET", `/audit-log?limit=100${by}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+    for (const e of page.items) {
+      table.append(
+        h(
+          "tr",
+          {},
+          h("td", { class: "small", text: fmtDate(e.at) }),
+          h("td", {}, h("span", { class: "badge", text: e.action })),
+          h("td", { class: "small mono", text: e.target.id ?? "—" }),
+          h("td", { class: "small", text: e.actor.name ?? e.actor.id ?? e.actor.type }),
+          h("td", { class: "small mono muted", text: e.ip ?? "" }),
+          h(
+            "td",
+            {},
+            h("button", {
+              class: "btn",
+              text: "Details",
+              onclick: () => modal(e.action, h("pre", { class: "small mono", style: "white-space:pre-wrap", text: JSON.stringify(e, null, 2) }), { wide: true }),
+            }),
+          ),
+        ),
+      );
+    }
+    cursor = page.nextCursor;
+    more.hidden = !cursor;
+    if (!table.children.length) table.append(h("tr", {}, h("td", { colspan: 6, class: "muted", text: "No entries." })));
+  };
+  more.onclick = () => load(false);
+  let t = null;
+  filter.oninput = () => {
+    clearTimeout(t);
+    t = setTimeout(() => void load(true).catch((err) => main.prepend(notice(errorText(err), true))), 300);
+  };
+  main.append(
+    h("p", { class: "muted", text: "Every change made through the admin API, and every conversation export. Entries cannot be edited or deleted; stream them to your SIEM with the audit.recorded webhook." }),
+    h("div", { class: "row", style: "margin-bottom:12px" }, filter),
+    h("div", { class: "card" }, h("table", {}, h("thead", {}, h("tr", {}, ["When", "Action", "Target", "By", "IP", ""].map((x) => h("th", { text: x })))), table), more),
+  );
+  await load(true);
 }
 
 // ------------------------------------------------------------------ shell + router

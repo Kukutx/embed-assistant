@@ -9,6 +9,7 @@ import { ulid } from "../lib/ids.js";
 import { metrics } from "../lib/metrics.js";
 import type { Sql } from "../db/pool.js";
 import type { AppEnv, Services } from "./env.js";
+import { recordError, SpanKind, SpanStatusCode, tracer, withIncomingContext } from "../lib/telemetry.js";
 
 export function bearer(c: Context): string | null {
   const h = c.req.header("authorization");
@@ -25,7 +26,30 @@ export function requestContext(s: Services): MiddlewareHandler<AppEnv> {
     c.set("requestId", requestId);
     c.set("clientIp", clientIp(c, s.cfg.TRUST_PROXY));
     const started = performance.now();
-    await next();
+    const headers = { traceparent: c.req.header("traceparent"), tracestate: c.req.header("tracestate") };
+    await withIncomingContext(headers, () =>
+      tracer.startActiveSpan(
+        `${c.req.method}`,
+        { kind: SpanKind.SERVER, attributes: { "http.request.method": c.req.method, "url.path": c.req.path, "embed_assistant.request_id": requestId } },
+        async (span) => {
+          try {
+            await next();
+          } catch (err) {
+            recordError(span, err);
+            throw err;
+          } finally {
+            const route = c.req.routePath || "unmatched";
+            span.updateName(`${c.req.method} ${route}`);
+            span.setAttribute("http.route", route);
+            span.setAttribute("http.response.status_code", c.res.status);
+            if (c.res.status >= 500) span.setStatus({ code: SpanStatusCode.ERROR });
+            const tenant = c.get("tenantId");
+            if (tenant) span.setAttribute("embed_assistant.tenant_id", tenant);
+            span.end();
+          }
+        },
+      ),
+    );
     c.header("x-request-id", requestId);
     const ms = Math.round(performance.now() - started);
     const routePath = c.req.routePath || "unmatched";

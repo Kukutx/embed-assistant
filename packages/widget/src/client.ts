@@ -18,6 +18,8 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly retryAfter: number | null = null,
+    /** Server request id (`x-request-id`), for support and log correlation. */
+    readonly requestId: string | null = null,
   ) {
     super(message);
   }
@@ -168,7 +170,7 @@ export class Client {
         /* non-JSON error */
       }
       const ra = Number(res.headers.get("retry-after"));
-      throw new ApiError(res.status, code, message, Number.isFinite(ra) && ra > 0 ? ra : null);
+      throw new ApiError(res.status, code, message, Number.isFinite(ra) && ra > 0 ? ra : null, res.headers.get("x-request-id"));
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;

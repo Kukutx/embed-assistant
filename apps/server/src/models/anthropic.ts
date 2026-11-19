@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ChatChunk, ChatModel, ChatRequest, ChatTurn } from "./types.js";
 import { ModelError, isRetryableStatus } from "./types.js";
+import { injectTraceHeaders } from "../lib/telemetry.js";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -56,7 +57,8 @@ export class AnthropicChat implements ChatModel {
           output_config: { effort: this.o.effort ?? "low" },
           ...(useFallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
         },
-        { signal: req.signal },
+        // traceparent lets a gateway or proxy in front of the API join the trace.
+        { signal: req.signal, headers: injectTraceHeaders({}) },
       );
     } catch (err) {
       throw toModelError(err);

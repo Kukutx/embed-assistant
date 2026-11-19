@@ -46,6 +46,8 @@ const EnvSchema = z.object({
   OUTBOUND_ALLOW_PRIVATE_NETWORKS: bool.default(false),
   /** Default retention for conversations in days (0 = keep forever); tenants can override it. */
   DEFAULT_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(0),
+  /** Keep audit log entries this many days (0 = forever). */
+  AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(400),
   /** Serve the bundled widget scripts from /widget (disable when using a CDN). */
   SERVE_WIDGET: bool.default(true),
   /** Directory holding the built widget files. */

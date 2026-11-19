@@ -18,6 +18,7 @@ import {
   WebhookDelivery,
   WebhookInput,
   WebhookPatch,
+  AuditEventList,
 } from "@embed-assistant/protocol";
 import { callAction, createAction, deleteAction, getAction, listActions, toAction, updateAction } from "../../actions/actions.js";
 import { generateAdminKey } from "../../auth/adminKey.js";
@@ -39,6 +40,7 @@ import {
   updateWebhook,
 } from "../../webhooks/webhooks.js";
 import { newId } from "../../lib/ids.js";
+import { listAudit, toAuditEvent } from "../../lib/audit.js";
 import { param, route } from "../define.js";
 import type { AppEnv, Services } from "../env.js";
 
@@ -249,6 +251,26 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
         daily_token_budget = ${body.dailyTokenBudget !== undefined ? body.dailyTokenBudget : cur.dailyTokenBudget}
         WHERE id = ${tid(c)}`;
       return c.json(await readSettings(tid(c)));
+    });
+
+  // ----------------------------------------------------------------- audit log
+  const AuditQuery = z.object({
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+    cursor: z.string().max(64).optional(),
+    action: z.string().max(100).optional(),
+    targetId: z.string().max(200).optional(),
+    actorId: z.string().max(64).optional(),
+    from: z.iso.datetime({ offset: true }).optional(),
+    to: z.iso.datetime({ offset: true }).optional(),
+  });
+  route(app, {
+      method: "get", path: "/v1/admin/audit-log", tag: A, summary: "Audit log of admin changes",
+      description: "Newest first. `action` matches exactly (`widgets.update`) or by resource (`widgets`). Entries cannot be changed or deleted through the API.",
+      auth: "admin", query: AuditQuery, response: { status: 200, schema: AuditEventList },
+    },
+    async (c, { query }) => {
+      const page = await listAudit(sql, tid(c), query);
+      return c.json({ items: page.items.map(toAuditEvent), nextCursor: page.nextCursor });
     });
 
   // ------------------------------------------------------- privacy and export

@@ -2,6 +2,7 @@ import { hostname } from "node:os";
 import type { Logger } from "pino";
 import type { Sql } from "../db/pool.js";
 import { newId } from "../lib/ids.js";
+import { withSpan } from "../lib/telemetry.js";
 
 export type JobType = "ingest_source" | "deliver_webhook";
 export interface JobRow {
@@ -63,7 +64,9 @@ export class JobWorker {
     const job = rows[0];
     if (!job) return false;
     try {
-      await this.handlers[job.type](job);
+      await withSpan(`job ${job.type}`, { attributes: { "embed_assistant.job_id": job.id, "embed_assistant.job_attempt": job.attempts } }, () =>
+        this.handlers[job.type](job),
+      );
       await this.sql`UPDATE jobs SET status = 'succeeded', last_error = NULL, updated_at = now() WHERE id = ${job.id}`;
     } catch (err) {
       const message = (err as Error).message?.slice(0, 1000) ?? String(err);

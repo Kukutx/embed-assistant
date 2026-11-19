@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { ErrorCode, type ErrorBody } from "@embed-assistant/protocol";
+import { auditTrail } from "../lib/audit.js";
 import { ApiError } from "../lib/errors.js";
 import type { AppEnv, Services } from "./env.js";
 import { adminAuth, publicCors, requestContext, sessionAuth, WidgetCache } from "./middleware.js";
@@ -75,6 +76,7 @@ export function createApp(s: Services): Hono<AppEnv> {
     app.use(p, async (c, next) => (c.req.method === "OPTIONS" ? next() : chatAuth(c, next)));
   }
   app.use("/v1/admin/*", adminAuth(s));
+  app.use("/v1/admin/*", auditTrail(s));
 
   opsRoutes(app, s);
   publicRoutes(app, s, widgets);

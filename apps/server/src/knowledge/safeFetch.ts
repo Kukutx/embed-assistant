@@ -1,3 +1,4 @@
+import { injectTraceHeaders } from "../lib/telemetry.js";
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { BlockList, isIP } from "node:net";
 import { Agent, fetch as undiciFetch } from "undici";
@@ -126,6 +127,7 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
       method,
       signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 20_000)]) : AbortSignal.timeout(opts.timeoutMs ?? 20_000),
       headers: {
+        ...injectTraceHeaders({}),
         ...opts.headers,
         "user-agent": opts.userAgent ?? USER_AGENT,
         accept: opts.accept ?? "text/html,application/xhtml+xml,text/plain,text/markdown;q=0.9,*/*;q=0.5",

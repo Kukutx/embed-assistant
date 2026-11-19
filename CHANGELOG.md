@@ -2,6 +2,14 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.4
+
+Operability and compliance.
+
+- **Audit log**: every successful admin change and every conversation export is recorded with the key that made it, action, target, IP, user agent, request id, trace id and the redacted request body. `GET /v1/admin/audit-log` with filters and cursor paging, an *Audit log* page in the console, the `audit.recorded` webhook event for SIEM streaming, and `AUDIT_RETENTION_DAYS` (default 400).
+- **OpenTelemetry tracing** over OTLP, configured with the standard `OTEL_*` variables and off by default: HTTP server spans that continue incoming `traceparent`, agent, retrieval, model (GenAI semantic conventions, token usage) and tool spans, job spans, and `traceparent` on every outgoing request including model APIs. Message contents are never recorded.
+- Log lines carry `trace_id` and `span_id`; widget `error` events carry the server `requestId`.
+
 ## 1.0.3
 
 Knowledge from more places, and inline embedding.

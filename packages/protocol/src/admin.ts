@@ -436,6 +436,8 @@ export const WebhookEventType = z.enum([
   "feedback.submitted",
   "handoff.requested",
   "source.synced",
+  /** Every audit log entry, for streaming to a SIEM. */
+  "audit.recorded",
 ]);
 export type WebhookEventType = z.infer<typeof WebhookEventType>;
 
@@ -536,3 +538,27 @@ export const Insights = z.object({
   tools: z.array(z.object({ name: z.string(), calls: z.number().int(), errors: z.number().int() })),
 });
 export type Insights = z.infer<typeof Insights>;
+
+/** One entry of the tenant's audit log: a change made through the admin API (or a sensitive read such as an export). */
+export const AuditEvent = z.object({
+  id: Id,
+  at: Timestamp,
+  /** Who made the change. `api_key` today; console users come later. */
+  actor: z.object({ type: z.enum(["api_key", "system"]), id: z.string().nullable(), name: z.string().nullable() }),
+  /** Dotted action name, e.g. `widgets.update`, `keys.create`, `sources.sync`. */
+  action: z.string(),
+  method: z.string(),
+  /** Route template, e.g. `/v1/admin/widgets/{id}`. */
+  route: z.string(),
+  target: z.object({ type: z.string(), id: z.string().nullable() }),
+  status: z.number().int(),
+  ip: z.string().nullable(),
+  userAgent: z.string().nullable(),
+  requestId: z.string().nullable(),
+  traceId: z.string().nullable(),
+  /** Request body with secret values redacted and long text shortened; null for file uploads and empty bodies. */
+  changes: z.unknown().nullable(),
+});
+export type AuditEvent = z.infer<typeof AuditEvent>;
+export const AuditEventList = z.object({ items: z.array(AuditEvent), nextCursor: z.string().nullable() });
+export type AuditEventList = z.infer<typeof AuditEventList>;

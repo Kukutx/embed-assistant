@@ -6,10 +6,14 @@ import { ingestSource, scheduleDueSyncs } from "./knowledge/ingest.js";
 import { JobWorker } from "./knowledge/jobs.js";
 import { metrics } from "./lib/metrics.js";
 import { purgeExpired } from "./lib/retention.js";
-import { createServices } from "./services.js";
+import { purgeAudit } from "./lib/audit.js";
+import { createServices, serverVersion } from "./services.js";
+import { initTelemetry } from "./lib/telemetry.js";
 import { deliverWebhook } from "./webhooks/webhooks.js";
 
 const cfg = loadConfig();
+// Tracing must be registered before anything creates spans.
+const telemetry = await initTelemetry(serverVersion());
 const s = createServices(cfg);
 const { log, sql } = s;
 
@@ -44,6 +48,7 @@ const timers = [
         .catch((err) => log.warn({ err }, "retention purge failed")),
     3600_000,
   ),
+  setInterval(() => void purgeAudit(sql, cfg.AUDIT_RETENTION_DAYS).catch((err) => log.warn({ err }, "audit purge failed")), 6 * 3600_000),
 ];
 
 const app = createApp(s);
@@ -61,6 +66,7 @@ async function shutdown(signal: string) {
   server.close();
   await Promise.allSettled([worker?.stop(), s.executor.shutdown(10_000)]);
   await sql.end({ timeout: 5 });
+  await telemetry?.shutdown().catch(() => {});
   process.exit(0);
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));

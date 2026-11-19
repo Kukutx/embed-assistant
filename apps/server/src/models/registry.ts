@@ -1,3 +1,4 @@
+import { recordError, SpanKind, tracer } from "../lib/telemetry.js";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import type { ModelAliasInfo } from "@embed-assistant/protocol";
@@ -214,18 +215,43 @@ export class ModelRegistry {
     let lastErr: ModelError | null = null;
     for (const d of candidates) {
       let emitted = false;
+      // GenAI semantic conventions; prompts and completions are never recorded.
+      const span = tracer.startSpan(`chat ${d.model}`, {
+        kind: SpanKind.CLIENT,
+        attributes: {
+          "gen_ai.operation.name": "chat",
+          "gen_ai.provider.name": d.provider,
+          "gen_ai.request.model": d.model,
+          "gen_ai.request.max_tokens": req.maxOutputTokens,
+          "embed_assistant.deployment": d.id,
+          "embed_assistant.model_alias": alias,
+          ...(req.tools?.length ? { "embed_assistant.tool_count": req.tools.length } : {}),
+        },
+      });
+      let finish = "stop";
       try {
         for await (const chunk of d.stream(req)) {
           if (chunk.type === "text" || chunk.type === "tool_call") emitted = true;
+          if (chunk.type === "tool_call") finish = "tool_calls";
+          if (chunk.type === "refusal") finish = "content_filter";
+          if (chunk.type === "usage") {
+            span.setAttribute("gen_ai.usage.input_tokens", chunk.inputTokens);
+            span.setAttribute("gen_ai.usage.output_tokens", chunk.outputTokens);
+          }
           yield { deploymentId: d.id, chunk };
         }
+        span.setAttribute("gen_ai.response.finish_reasons", [finish]);
         return;
       } catch (err) {
+        recordError(span, err);
         if (req.signal.aborted) throw err;
         const me = err instanceof ModelError ? err : new ModelError((err as Error).message, false);
         if (emitted || !me.retryable) throw me;
         lastErr = me;
         this.onFailover?.(d.id, me);
+      } finally {
+        // Also runs when the consumer stops iterating early.
+        span.end();
       }
     }
     throw lastErr ?? new ModelError("all deployments failed", true);

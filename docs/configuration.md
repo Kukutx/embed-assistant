@@ -76,6 +76,29 @@ Without `MODELS_CONFIG`, these aliases are generated from whatever is configured
 | Variable | Default | |
 |---|---|---|
 | `DEFAULT_RETENTION_DAYS` | `0` | Delete conversations older than this many days (checked hourly); `0` keeps them. Each tenant can override it in the console under *Settings*. |
+| `AUDIT_RETENTION_DAYS` | `400` | Delete audit log entries older than this many days; `0` keeps them forever. |
+
+## Tracing (OpenTelemetry)
+
+Tracing is off until an OTLP endpoint is set. It uses the standard OpenTelemetry variables, so any backend works (Jaeger, Grafana Tempo, Honeycomb, Datadog, New Relic, Elastic, Langfuse, an OpenTelemetry Collector…).
+
+| Variable | |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Turns tracing on, e.g. `http://otel-collector:4318`. OTLP over HTTP (protobuf). |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Auth headers for hosted backends, e.g. `x-honeycomb-team=…`. |
+| `OTEL_SERVICE_NAME` | Defaults to `embed-assistant`. |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | e.g. `parentbased_traceidratio` and `0.1` to keep 10 %. |
+| `OTEL_SDK_DISABLED=true` | Force tracing off. |
+
+What you get:
+
+- A server span per HTTP request (`GET /v1/admin/widgets/{id}`), continuing the caller's trace from an incoming `traceparent` header.
+- `invoke_agent` per run, with child spans for `retrieval`, every model call (`chat <model>`, with the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/): provider, model, token usage, finish reason) and every tool call (`execute_tool <name>`).
+- A span per background job (crawls, webhook deliveries).
+- `traceparent` on every outgoing request: actions, webhooks, MCP servers, crawls and model APIs, so your own services and LLM gateways join the same trace.
+- `trace_id` and `span_id` in every log line written inside a span.
+
+Message contents, prompts and tool arguments are never recorded in spans.
 
 ## CLI
 

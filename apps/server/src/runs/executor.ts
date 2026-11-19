@@ -1,3 +1,4 @@
+import { withSpan } from "../lib/telemetry.js";
 import type { Logger } from "pino";
 import type { ClientToolDef, PageContext } from "@embed-assistant/protocol";
 import { listActions } from "../actions/actions.js";
@@ -87,7 +88,20 @@ export class RunExecutor {
   start(job: RunJob): void {
     const controller = new AbortController();
     this.active.set(job.runId, controller);
-    void this.execute(job, controller)
+    void withSpan(
+      "invoke_agent",
+      {
+        attributes: {
+          "gen_ai.operation.name": "invoke_agent",
+          "gen_ai.agent.id": job.assistant.id,
+          "gen_ai.agent.name": job.assistant.name,
+          "gen_ai.conversation.id": job.conversationId,
+          "embed_assistant.run_id": job.runId,
+          "embed_assistant.tenant_id": job.tenantId,
+        },
+      },
+      () => this.execute(job, controller),
+    )
       .catch((err) => this.log.error({ err, run: job.runId }, "run crashed"))
       .finally(() => this.active.delete(job.runId));
   }
@@ -230,7 +244,11 @@ export class RunExecutor {
         ? await contextualQuery(this.models, { alias: aux, question: job.userMessage.content, history, useModel: a.query_rewrite, signal })
         : job.userMessage.content;
       const retrieveFor = (q: string) =>
-        retrieve(sql, this.models.embeddings, this.log, { tenantId: job.tenantId, sourceIds: a.source_ids, access: job.access, query: q });
+        withSpan("retrieval", { attributes: { "embed_assistant.source_count": a.source_ids.length } }, async (span) => {
+          const r = await retrieve(sql, this.models.embeddings, this.log, { tenantId: job.tenantId, sourceIds: a.source_ids, access: job.access, query: q });
+          span.setAttribute("embed_assistant.passages", r.length);
+          return r;
+        });
       const sources: SourcePassage[] = await retrieveFor(query);
       await sql`UPDATE runs SET retrieval_query = ${query}, source_count = ${sources.length} WHERE id = ${job.runId}`;
       await emit(job.runId, ++seq, "retrieval.completed", { sources: sources.map(toCitation) });
@@ -474,7 +492,15 @@ export class RunExecutor {
     }
     let out: { content: string; isError: boolean };
     try {
-      out = await tool.run!(call.input, signal);
+      out = await withSpan(
+        `execute_tool ${call.name}`,
+        { attributes: { "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": call.name, "gen_ai.tool.call.id": callId, "gen_ai.tool.type": tool.kind } },
+        async (span) => {
+          const r = await tool.run!(call.input, signal);
+          if (r.isError) span.setAttribute("error.type", "tool_error");
+          return r;
+        },
+      );
     } catch (err) {
       if (signal.aborted) throw err;
       out = { content: `Tool failed: ${(err as Error).message}`, isError: true };
