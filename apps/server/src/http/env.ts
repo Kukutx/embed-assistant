@@ -3,6 +3,7 @@ import type { Config } from "../config.js";
 import type { Sql } from "../db/pool.js";
 import type { KeyRow, WidgetRow } from "../db/store.js";
 import type { SessionClaims, SessionSigner } from "../auth/session.js";
+import type { Actor } from "../auth/permissions.js";
 import type { IngestDeps } from "../knowledge/ingest.js";
 import type { RateLimiter } from "../lib/rateLimit.js";
 import type { ModelRegistry } from "../models/registry.js";
@@ -33,5 +34,9 @@ export interface AppEnv {
     widget: WidgetRow;
     tenantId: string;
     apiKey: KeyRow;
+    /** Admin API caller (API key or console user). */
+    actor: Actor;
+    /** Console session token of the caller, when signed in with SSO. */
+    consoleToken: string;
   };
 }

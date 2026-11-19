@@ -9,6 +9,7 @@ import { ApiError } from "../lib/errors.js";
 import type { AppEnv, Services } from "./env.js";
 import { adminAuth, publicCors, requestContext, sessionAuth, WidgetCache } from "./middleware.js";
 import { adminRoutes } from "./routes/admin.js";
+import { authRoutes } from "./routes/auth.js";
 import { adminAgentRoutes } from "./routes/adminAgent.js";
 import { mcpRoutes } from "../mcp/server.js";
 import { adminMcpRoutes } from "./routes/adminMcp.js";
@@ -70,6 +71,7 @@ export function createApp(s: Services): Hono<AppEnv> {
   const uploadLimit = bodyLimit({ maxSize: 100 * 1024 * 1024, onError: tooLarge });
   app.use("/v1/admin/*", (c, next) => (/^\/v1\/admin\/sources\/[^/]+\/files$/.test(c.req.path) ? uploadLimit(c, next) : adminLimit(c, next)));
   app.use("/mcp", bodyLimit({ maxSize: 256 * 1024, onError: tooLarge }));
+  app.use("/auth/*", bodyLimit({ maxSize: 16 * 1024, onError: tooLarge }));
   app.use("/v1/*", async (c, next) => (c.req.path.startsWith("/v1/admin/") ? next() : publicBodyLimit(c, next)));
   const chatAuth = sessionAuth(s, widgets);
   for (const p of ["/v1/conversations/*", "/v1/runs/*", "/v1/messages/*"]) {
@@ -84,6 +86,7 @@ export function createApp(s: Services): Hono<AppEnv> {
   adminRoutes(app, s, widgets);
   adminAgentRoutes(app, s);
   adminMcpRoutes(app, s);
+  authRoutes(app, s);
   mcpRoutes(app, s);
 
   if (s.cfg.SERVE_WIDGET) {

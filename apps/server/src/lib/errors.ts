@@ -32,3 +32,4 @@ export const badRequest = (message: string, details?: unknown) =>
 export const unauthorized = (message = "missing or invalid credentials") =>
   new ApiError(ErrorCode.Unauthorized, message);
 export const forbidden = (message = "not allowed") => new ApiError(ErrorCode.Forbidden, message);
+export const conflict = (message: string) => new ApiError(ErrorCode.Conflict, message);

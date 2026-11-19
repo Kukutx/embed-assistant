@@ -40,6 +40,8 @@ const EnvSchema = z.object({
   /** Default daily model-token budget per widget (0 = unlimited). */
   DEFAULT_DAILY_TOKEN_BUDGET: z.coerce.number().int().min(0).default(2_000_000),
   SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(7 * 86400).default(12 * 3600),
+  /** Console sign-in (single sign-on) lasts this many hours. */
+  CONSOLE_SESSION_HOURS: z.coerce.number().int().min(1).max(24 * 30).default(12),
   /** Allow ingestion from private/loopback addresses (development only). */
   INGEST_ALLOW_PRIVATE_NETWORKS: bool.default(false),
   /** Allow actions, webhooks and MCP servers on private/loopback addresses (self-hosted intranets). */

@@ -2,6 +2,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { ErrorCode } from "@embed-assistant/protocol";
 import { hashAdminKey, ADMIN_KEY_PREFIX } from "../auth/adminKey.js";
+import { CONSOLE_SESSION_PREFIX, findSessionUser } from "../auth/console.js";
 import { isOriginAllowed } from "../auth/origin.js";
 import { findAdminKey, getWidgetById, type WidgetRow } from "../db/store.js";
 import { ApiError, forbidden, unauthorized } from "../lib/errors.js";
@@ -141,13 +142,23 @@ export function sessionAuth(s: Services, widgets: WidgetCache): MiddlewareHandle
 
 export function adminAuth(s: Services): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const key = bearer(c);
-    if (!key || !key.startsWith(ADMIN_KEY_PREFIX)) throw unauthorized("missing admin key");
-    const row = await findAdminKey(s.sql, hashAdminKey(key));
+    const token = bearer(c);
+    if (token?.startsWith(CONSOLE_SESSION_PREFIX)) {
+      const user = await findSessionUser(s.sql, token);
+      if (!user) throw unauthorized("your console session has expired; sign in again");
+      c.set("tenantId", user.tenant_id);
+      c.set("actor", { type: "user", id: user.id, name: user.name, email: user.email, role: user.role, tenantId: user.tenant_id });
+      c.set("consoleToken", token);
+      return next();
+    }
+    if (!token || !token.startsWith(ADMIN_KEY_PREFIX)) throw unauthorized("missing admin key");
+    const row = await findAdminKey(s.sql, hashAdminKey(token));
     if (!row) throw unauthorized("invalid admin key");
     if (!row.scopes.includes("admin")) throw forbidden("this key has no admin scope");
     c.set("tenantId", row.tenant_id);
     c.set("apiKey", row);
+    // Admin keys are for automation and break-glass access: they hold every permission.
+    c.set("actor", { type: "api_key", id: row.id, name: row.name, email: null, role: "owner", tenantId: row.tenant_id });
     await next();
   };
 }

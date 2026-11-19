@@ -38,7 +38,7 @@ async function api(method, path, body) {
   if (res.status === 401) {
     sessionStorage.removeItem(KEY);
     render();
-    throw new ApiError(401, { error: { message: "Invalid admin key" } });
+    throw new ApiError(401, { error: { message: "Signed out" } });
   }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, data);
@@ -82,9 +82,56 @@ function copyButton(text) {
 }
 
 // ------------------------------------------------------------------ login
-function loginView() {
+let me = null;
+const allowed = (perm) => !perm || (me?.permissions ?? []).includes(perm);
+
+async function signedIn() {
+  me = await api("GET", "/me");
+  const first = Object.entries(VIEWS).find(([, v]) => allowed(v.perm));
+  const current = location.hash.replace(/^#\//, "").split(/[/?]/)[0];
+  if (!VIEWS[current] || !allowed(VIEWS[current].perm)) location.hash = `#/${first ? first[0] : "overview"}`;
+  render();
+}
+
+/** Back from the identity provider: #/login?code=… or #/login?error=…; resolves to an error text, or undefined once signed in. */
+async function finishSso() {
+  const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
+  const code = params.get("code");
+  history.replaceState(null, "", "/admin/#/");
+  if (!code) return params.get("error") ?? "";
+  const res = await fetch("/auth/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return data?.error?.message ?? "Sign-in failed";
+  sessionStorage.setItem(KEY, data.token);
+  await signedIn();
+  return undefined;
+}
+
+function loginView(error) {
   const input = h("input", { type: "password", placeholder: "ea_admin_…", autocomplete: "off", "aria-label": "Admin key" });
-  const msg = h("div");
+  const msg = h("div", {}, error ? notice(error, true) : null);
+  const sso = h("div");
+  fetch("/auth/sso")
+    .then((r) => r.json())
+    .then((o) => {
+      if (!o.enabled) return;
+      const tenant = h("input", { placeholder: "ten_…", "aria-label": "Organization id" });
+      sso.replaceChildren(
+        h(
+          "form",
+          {
+            onsubmit: (e) => {
+              e.preventDefault();
+              location.href = `/auth/oidc/start${o.tenantRequired ? `?tenant=${encodeURIComponent(tenant.value.trim())}` : ""}`;
+            },
+          },
+          o.tenantRequired ? field("Organization id", tenant, "Ask your administrator.") : null,
+          h("button", { class: "btn primary", type: "submit", text: "Sign in with single sign-on" }),
+        ),
+        h("p", { class: "muted small", style: "text-align:center;margin:14px 0 4px", text: "or with an admin API key" }),
+      );
+    })
+    .catch(() => {});
   const form = h(
     "form",
     {
@@ -92,9 +139,7 @@ function loginView() {
         e.preventDefault();
         sessionStorage.setItem(KEY, input.value.trim());
         try {
-          await api("GET", "/models");
-          location.hash = "#/overview";
-          render();
+          await signedIn();
         } catch (err) {
           sessionStorage.removeItem(KEY);
           msg.replaceChildren(notice(errorText(err), true));
@@ -102,25 +147,25 @@ function loginView() {
       },
     },
     field("Admin key", input, "Printed by `pnpm seed`. Kept only in this browser tab."),
-    msg,
-    h("button", { class: "btn primary", type: "submit", text: "Sign in" }),
+    h("button", { class: "btn", type: "submit", text: "Sign in with key" }),
   );
-  return h("div", { class: "login" }, h("div", { class: "card" }, h("h1", { text: "embed-assistant" }), h("p", { class: "muted", text: "Admin console" }), form));
+  return h("div", { class: "login" }, h("div", { class: "card" }, h("h1", { text: "embed-assistant" }), h("p", { class: "muted", text: "Admin console" }), msg, sso, form));
 }
 
 // ------------------------------------------------------------------ views
 const VIEWS = {
-  overview: { title: "Overview", render: overview },
-  insights: { title: "Insights", render: insights },
-  assistants: { title: "Assistants", render: assistants },
-  widgets: { title: "Widgets", render: widgets },
-  knowledge: { title: "Knowledge", render: knowledge },
-  actions: { title: "Actions", render: actions },
-  mcp: { title: "MCP servers", render: mcpServers },
-  conversations: { title: "Conversations", render: conversations },
-  webhooks: { title: "Webhooks", render: webhooks },
-  audit: { title: "Audit log", render: auditLog },
-  settings: { title: "Settings", render: settings },
+  overview: { title: "Overview", render: overview, perm: "analytics:read" },
+  insights: { title: "Insights", render: insights, perm: "analytics:read" },
+  assistants: { title: "Assistants", render: assistants, perm: "config:read" },
+  widgets: { title: "Widgets", render: widgets, perm: "config:read" },
+  knowledge: { title: "Knowledge", render: knowledge, perm: "config:read" },
+  actions: { title: "Actions", render: actions, perm: "config:read" },
+  mcp: { title: "MCP servers", render: mcpServers, perm: "config:read" },
+  conversations: { title: "Conversations", render: conversations, perm: "conversations:read" },
+  webhooks: { title: "Webhooks", render: webhooks, perm: "config:read" },
+  team: { title: "Team and sign-in", render: team, perm: "security:manage" },
+  audit: { title: "Audit log", render: auditLog, perm: "security:manage" },
+  settings: { title: "Settings", render: settings, perm: "security:manage" },
 };
 let pollTimer = null;
 
@@ -1349,6 +1394,140 @@ async function settings(main) {
   );
 }
 
+// ------------------------------------------------------------------ team and sign-in
+const ROLES = [
+  ["owner", "Owner: everything, including other owners"],
+  ["admin", "Admin: everything except managing owners"],
+  ["editor", "Editor: maintain knowledge"],
+  ["analyst", "Analyst: conversations, exports and insights"],
+  ["agent", "Agent: read and answer conversations"],
+];
+const roleSelect = (value, { owner = me?.role === "owner", exclude = [] } = {}) =>
+  h("select", {}, ROLES.filter(([r]) => (owner || r !== "owner") && !exclude.includes(r)).map(([r, label]) => h("option", { value: r, text: label, selected: r === value })));
+
+async function team(main) {
+  const [users, sso] = await Promise.all([api("GET", "/users"), api("GET", "/sso")]);
+  const rows = h("tbody");
+  for (const u of users) {
+    const self = me.type === "user" && me.id === u.id;
+    const locked = self || (u.role === "owner" && me.role !== "owner");
+    const role = roleSelect(u.role);
+    role.disabled = locked;
+    role.onchange = async () => {
+      try {
+        await api("PATCH", `/users/${u.id}`, { role: role.value });
+      } catch (err) {
+        alert(errorText(err));
+        route();
+      }
+    };
+    rows.append(
+      h(
+        "tr",
+        {},
+        h("td", {}, h("strong", { text: u.name ?? u.email }), h("div", { class: "small muted", text: u.email }), self ? h("span", { class: "badge", text: "you" }) : null),
+        h("td", {}, role),
+        h("td", {}, u.disabled ? h("span", { class: "badge bad", text: "disabled" }) : u.lastLoginAt ? h("span", { class: "badge ok", text: "active" }) : h("span", { class: "badge warn", text: "invited" })),
+        h("td", { class: "small", text: u.lastLoginAt ? fmtDate(u.lastLoginAt) : "never" }),
+        h(
+          "td",
+          { class: "row" },
+          locked
+            ? null
+            : [
+                h("button", { class: "btn", text: u.disabled ? "Enable" : "Disable", onclick: async () => { try { await api("PATCH", `/users/${u.id}`, { disabled: !u.disabled }); route(); } catch (err) { alert(errorText(err)); } } }),
+                h("button", { class: "btn danger", text: "Remove", onclick: async () => { if (!confirm(`Remove ${u.email}?`)) return; try { await api("DELETE", `/users/${u.id}`); route(); } catch (err) { alert(errorText(err)); } } }),
+              ],
+        ),
+      ),
+    );
+  }
+  if (!users.length) rows.append(h("tr", {}, h("td", { colspan: 5, class: "muted", text: "No console users yet. Invite people below; they sign in with single sign-on." })));
+
+  const email = h("input", { type: "email", required: true, placeholder: "name@company.com" });
+  const name = h("input", { placeholder: "Optional" });
+  const role = roleSelect("editor");
+  const inviteMsg = h("div");
+
+  const issuer = h("input", { value: sso.issuer, required: true, placeholder: "https://login.microsoftonline.com/<tenant-id>/v2.0" });
+  const clientId = h("input", { value: sso.clientId, required: true });
+  const clientSecret = h("input", { type: "password", autocomplete: "off", placeholder: sso.hasClientSecret ? "Stored. Leave empty to keep it." : "Client secret" });
+  const domains = h("input", { value: sso.allowedDomains.join(", "), placeholder: "company.com, subsidiary.com" });
+  const auto = h("select", {}, h("option", { value: "", text: "Off: invited people only" }), ROLES.filter(([r]) => r !== "owner").map(([r, label]) => h("option", { value: r, text: `On, as ${label}`, selected: sso.autoProvisionRole === r })));
+  const enabled = h("input", { type: "checkbox", checked: sso.updatedAt ? sso.enabled : true });
+  const ssoMsg = h("div");
+
+  main.append(
+    h("div", { class: "card" }, h("h2", { text: "People" }), h("table", {}, h("thead", {}, h("tr", {}, ["Person", "Role", "Status", "Last sign-in", ""].map((x) => h("th", { text: x })))), rows)),
+    h(
+      "div",
+      { class: "card" },
+      h("h2", { text: "Invite" }),
+      h(
+        "form",
+        {
+          onsubmit: async (e) => {
+            e.preventDefault();
+            try {
+              await api("POST", "/users", { email: email.value.trim(), name: name.value.trim() || null, role: role.value });
+              route();
+            } catch (err) {
+              inviteMsg.replaceChildren(notice(errorText(err), true));
+            }
+          },
+        },
+        h("div", { class: "two" }, field("E-mail", email, "They sign in with single sign-on using this address."), field("Name", name)),
+        field("Role", role),
+        inviteMsg,
+        h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Invite" })),
+      ),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("h2", { text: "Single sign-on (OpenID Connect)" }),
+      h("p", { class: "muted small", text: "Works with Microsoft Entra ID, Google Workspace, Okta, Auth0, Keycloak, Authentik, Zitadel and any OpenID Connect provider. Create a web application there with this redirect URI:" }),
+      h("div", { class: "row", style: "margin-bottom:12px" }, h("code", { text: sso.redirectUri }), copyButton(sso.redirectUri)),
+      h(
+        "form",
+        {
+          onsubmit: async (e) => {
+            e.preventDefault();
+            try {
+              await api("PUT", "/sso", {
+                enabled: enabled.checked,
+                issuer: issuer.value.trim(),
+                clientId: clientId.value.trim(),
+                ...(clientSecret.value ? { clientSecret: clientSecret.value } : {}),
+                allowedDomains: csv(domains.value),
+                autoProvisionRole: auto.value || null,
+              });
+              ssoMsg.replaceChildren(notice("Saved. Sign out and use “Sign in with single sign-on” to try it; your API key keeps working."));
+              clientSecret.value = "";
+            } catch (err) {
+              ssoMsg.replaceChildren(notice(errorText(err), true));
+            }
+          },
+        },
+        field("Issuer URL", issuer, "Its /.well-known/openid-configuration is checked when you save."),
+        h("div", { class: "two" }, field("Client id", clientId), field("Client secret", clientSecret)),
+        field("Allowed e-mail domains", domains, "Comma separated. Empty allows any domain for invited people."),
+        field("Create accounts on first sign-in", auto, "Off is safest: only people you invite can sign in."),
+        h("label", { class: "check" }, enabled, "Enabled"),
+        ssoMsg,
+        h(
+          "div",
+          { class: "row" },
+          h("button", { class: "btn primary", type: "submit", text: "Save" }),
+          sso.updatedAt
+            ? h("button", { class: "btn danger", type: "button", text: "Remove single sign-on", onclick: async () => { if (!confirm("Remove single sign-on? Console users are signed out; API keys keep working.")) return; await api("DELETE", "/sso"); route(); } })
+            : null,
+        ),
+      ),
+    ),
+  );
+}
+
 // ------------------------------------------------------------------ audit log
 async function auditLog(main) {
   const table = h("tbody");
@@ -1407,10 +1586,10 @@ async function auditLog(main) {
 async function route() {
   clearTimeout(pollTimer);
   const name = (location.hash.replace(/^#\//, "") || "overview").split(/[/?]/)[0];
-  const view = VIEWS[name] ?? VIEWS.overview;
+  const view = VIEWS[name] && allowed(VIEWS[name].perm) ? VIEWS[name] : Object.values(VIEWS).find((v) => allowed(v.perm));
   document.querySelectorAll("aside [data-view]").forEach((b) => b.setAttribute("aria-current", b.dataset.view === name ? "page" : "false"));
   const main = document.querySelector("main");
-  if (!main) return;
+  if (!main || !view) return;
   const content = h("div");
   main.replaceChildren(h("div", { class: "top" }, h("h1", { text: view.title })), content);
   document.title = `${view.title} · embed-assistant`;
@@ -1421,12 +1600,29 @@ async function route() {
   }
 }
 
-function render() {
+async function signOut() {
+  const key = getKey();
+  if (key?.startsWith("ea_cs_")) await api("POST", "/logout").catch(() => {});
+  sessionStorage.removeItem(KEY);
+  me = null;
+  render();
+}
+
+function render(error) {
   if (!getKey()) {
-    app.replaceChildren(loginView());
+    app.replaceChildren(loginView(error));
     return;
   }
-  const nav = Object.entries(VIEWS).map(([id, v]) => h("button", { "data-view": id, onclick: () => (location.hash = `#/${id}`), text: v.title }));
+  if (!me) {
+    signedIn().catch((err) => {
+      sessionStorage.removeItem(KEY);
+      render(errorText(err));
+    });
+    return;
+  }
+  const nav = Object.entries(VIEWS)
+    .filter(([, v]) => allowed(v.perm))
+    .map(([id, v]) => h("button", { "data-view": id, onclick: () => (location.hash = `#/${id}`), text: v.title }));
   app.replaceChildren(
     h(
       "div",
@@ -1437,14 +1633,9 @@ function render() {
         h("div", { class: "brand", text: "embed-assistant" }),
         nav,
         h("div", { class: "spacer" }),
+        h("div", { class: "small muted", style: "padding:4px 10px" }, h("div", { text: me.email ?? me.name ?? "API key" }), h("span", { class: "badge", text: me.role })),
         h("a", { class: "small", href: "/openapi.json", target: "_blank", text: "API reference (OpenAPI)" }),
-        h("button", {
-          onclick: () => {
-            sessionStorage.removeItem(KEY);
-            render();
-          },
-          text: "Sign out",
-        }),
+        h("button", { onclick: signOut, text: "Sign out" }),
       ),
       h("main"),
     ),
@@ -1452,5 +1643,6 @@ function render() {
   route();
 }
 
-window.addEventListener("hashchange", () => getKey() && route());
-render();
+window.addEventListener("hashchange", () => getKey() && me && route());
+if (location.hash.startsWith("#/login")) finishSso().then((error) => error !== undefined && render(error || undefined), (err) => render(errorText(err)));
+else render();

@@ -544,7 +544,7 @@ export const AuditEvent = z.object({
   id: Id,
   at: Timestamp,
   /** Who made the change. `api_key` today; console users come later. */
-  actor: z.object({ type: z.enum(["api_key", "system"]), id: z.string().nullable(), name: z.string().nullable() }),
+  actor: z.object({ type: z.enum(["api_key", "user", "system"]), id: z.string().nullable(), name: z.string().nullable() }),
   /** Dotted action name, e.g. `widgets.update`, `keys.create`, `sources.sync`. */
   action: z.string(),
   method: z.string(),
@@ -562,3 +562,105 @@ export const AuditEvent = z.object({
 export type AuditEvent = z.infer<typeof AuditEvent>;
 export const AuditEventList = z.object({ items: z.array(AuditEvent), nextCursor: z.string().nullable() });
 export type AuditEventList = z.infer<typeof AuditEventList>;
+
+// ---------------------------------------------------------------------------
+// Console users, roles and single sign-on
+// ---------------------------------------------------------------------------
+
+/**
+ * Roles, from most to least privileged:
+ * - `owner`: everything, including managing other owners.
+ * - `admin`: everything except managing owners.
+ * - `editor`: maintain knowledge; read configuration, conversations and analytics.
+ * - `analyst`: read configuration, conversations (and export them) and analytics.
+ * - `agent`: read conversations and take over handed-off chats.
+ */
+export const Role = z.enum(["owner", "admin", "editor", "analyst", "agent"]);
+export type Role = z.infer<typeof Role>;
+
+export const Permission = z.enum([
+  "config:read",
+  "config:write",
+  "knowledge:write",
+  "conversations:read",
+  "conversations:export",
+  "conversations:reply",
+  "conversations:delete",
+  "analytics:read",
+  "security:manage",
+]);
+export type Permission = z.infer<typeof Permission>;
+
+export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
+  owner: Permission.options,
+  admin: Permission.options,
+  editor: ["config:read", "knowledge:write", "conversations:read", "analytics:read"],
+  analyst: ["config:read", "conversations:read", "conversations:export", "analytics:read"],
+  agent: ["config:read", "conversations:read", "conversations:reply"],
+};
+
+const Email = z.string().trim().toLowerCase().pipe(z.email().max(320));
+
+export const ConsoleUser = z.object({
+  id: Id,
+  email: z.string(),
+  name: z.string().nullable(),
+  role: Role,
+  disabled: z.boolean(),
+  /** Has signed in at least once (otherwise the invitation is pending). */
+  lastLoginAt: Timestamp.nullable(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type ConsoleUser = z.infer<typeof ConsoleUser>;
+export const ConsoleUserInput = z.object({
+  email: Email,
+  name: z.string().trim().min(1).max(200).nullable().default(null),
+  role: Role,
+});
+export const ConsoleUserPatch = z.object({
+  name: z.string().trim().min(1).max(200).nullable(),
+  role: Role,
+  disabled: z.boolean(),
+}).partial();
+
+/** Who is calling the admin API. */
+export const Me = z.object({
+  type: z.enum(["api_key", "user"]),
+  id: Id,
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  role: Role,
+  permissions: z.array(Permission),
+  tenantId: Id,
+});
+export type Me = z.infer<typeof Me>;
+
+/** OpenID Connect single sign-on for the console (one identity provider per tenant). */
+export const SsoConfig = z.object({
+  enabled: z.boolean(),
+  /** Issuer URL, e.g. `https://login.microsoftonline.com/<tenant>/v2.0`, `https://accounts.google.com`, `https://<org>.okta.com`. */
+  issuer: z.string(),
+  clientId: z.string(),
+  /** A client secret is stored (it is never returned). */
+  hasClientSecret: z.boolean(),
+  /** Only these e-mail domains may sign in; empty = any domain (invited users only, unless auto-provisioning). */
+  allowedDomains: z.array(z.string()),
+  /** Create users on first sign-in with this role; null = invited users only. */
+  autoProvisionRole: Role.nullable(),
+  /** Register this redirect URI with the identity provider. */
+  redirectUri: z.string(),
+  updatedAt: Timestamp.nullable(),
+});
+export type SsoConfig = z.infer<typeof SsoConfig>;
+export const SsoConfigInput = z.object({
+  enabled: z.boolean().default(true),
+  issuer: HttpUrl,
+  clientId: z.string().min(1).max(500),
+  /** Omit to keep the stored secret. */
+  clientSecret: z.string().min(1).max(2000).optional(),
+  allowedDomains: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, "a domain like example.com")).max(50).default([]),
+  autoProvisionRole: Role.exclude(["owner"]).nullable().default(null),
+});
+
+export const ConsoleLogin = z.object({ token: z.string(), expiresAt: Timestamp, user: ConsoleUser });

@@ -7,6 +7,7 @@ import { JobWorker } from "./knowledge/jobs.js";
 import { metrics } from "./lib/metrics.js";
 import { purgeExpired } from "./lib/retention.js";
 import { purgeAudit } from "./lib/audit.js";
+import { purgeSessions } from "./auth/console.js";
 import { createServices, serverVersion } from "./services.js";
 import { initTelemetry } from "./lib/telemetry.js";
 import { deliverWebhook } from "./webhooks/webhooks.js";
@@ -49,6 +50,7 @@ const timers = [
     3600_000,
   ),
   setInterval(() => void purgeAudit(sql, cfg.AUDIT_RETENTION_DAYS).catch((err) => log.warn({ err }, "audit purge failed")), 6 * 3600_000),
+  setInterval(() => void purgeSessions(sql).catch((err) => log.warn({ err }, "session purge failed")), 3600_000),
 ];
 
 const app = createApp(s);

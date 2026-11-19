@@ -27,6 +27,7 @@ const NAMED: Record<string, string> = {
   "DELETE /subjects/:subjectId": "subjects.erase",
   "DELETE /keys/:id": "keys.revoke",
   "GET /conversations/export": "conversations.export",
+  "POST /logout": "auth.logout",
 };
 
 /** Sensitive reads that are audited like changes. */
@@ -115,7 +116,7 @@ export interface AuditRow {
 export const toAuditEvent = (r: AuditRow): AuditEvent => ({
   id: r.id,
   at: r.at.toISOString(),
-  actor: { type: r.actor_type as "api_key" | "system", id: r.actor_id, name: r.actor_name },
+  actor: { type: r.actor_type as "api_key" | "user" | "system", id: r.actor_id, name: r.actor_name },
   action: r.action,
   method: r.method,
   route: r.route,
@@ -199,8 +200,8 @@ export function auditTrail(s: Services): MiddlewareHandler<AppEnv> {
     const status = c.res.status;
     if (status < 200 || status >= 300) return;
     const a = auditAction(c.req.method, c.req.routePath);
-    const key = c.get("apiKey");
-    if (!a || !key) return;
+    const actor = c.get("actor");
+    if (!a || !actor) return;
     try {
       let changes: unknown = null;
       const type = c.req.header("content-type") ?? "";
@@ -212,10 +213,10 @@ export function auditTrail(s: Services): MiddlewareHandler<AppEnv> {
       const targetId = (a.targetParam ? c.req.param(a.targetParam) : null) ?? (await createdId(c.res));
       const ids = activeTraceIds();
       await recordAudit(s.sql, {
-        tenant_id: key.tenant_id,
-        actor_type: "api_key",
-        actor_id: key.id,
-        actor_name: key.name,
+        tenant_id: actor.tenantId,
+        actor_type: actor.type,
+        actor_id: actor.id,
+        actor_name: actor.type === "user" ? (actor.email ?? actor.name) : actor.name,
         action: a.action,
         method: c.req.method,
         route: c.req.routePath.replace(/:(\w+)/g, "{$1}"),

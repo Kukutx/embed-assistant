@@ -1,7 +1,8 @@
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { PROTOCOL_VERSION } from "@embed-assistant/protocol";
-import { badRequest } from "../lib/errors.js";
+import { can, routePermission } from "../auth/permissions.js";
+import { badRequest, forbidden } from "../lib/errors.js";
 import type { AppEnv } from "./env.js";
 
 /**
@@ -40,7 +41,12 @@ export function route<B extends z.ZodType | undefined = undefined, Q extends z.Z
 ): void {
   if (!registry.some((r) => r.method === spec.method && r.path === spec.path)) registry.push(spec);
   const honoPath = spec.path.replace(/\{(\w+)\}/g, ":$1");
+  const permission = spec.auth === "admin" ? routePermission(spec.method, spec.path) : null;
   app.on(spec.method.toUpperCase(), honoPath, async (c) => {
+    if (spec.auth === "admin") {
+      const actor = c.get("actor");
+      if (!actor || !can(actor.role, permission)) throw forbidden(`your role (${actor?.role ?? "none"}) does not allow this (needs ${permission})`);
+    }
     let body: unknown = undefined;
     let query: unknown = undefined;
     if (spec.body) {
@@ -89,7 +95,10 @@ export function openApiDocument(baseUrl: string, version: string): Record<string
     const op: Record<string, unknown> = {
       tags: [r.tag],
       summary: r.summary,
-      ...(r.description ? { description: r.description } : {}),
+      ...(r.description || r.auth === "admin"
+        ? { description: [r.description, r.auth === "admin" ? requiredPermissionText(r.method, r.path) : null].filter(Boolean).join("\n\n") }
+        : {}),
+      ...(r.auth === "admin" ? { "x-permission": routePermission(r.method, r.path) } : {}),
       operationId: `${r.method}${r.path.replace(/\/v1/, "").replace(/[{}]/g, "").replace(/[/-](\w)/g, (_, ch: string) => ch.toUpperCase())}`,
       parameters: params,
       security: r.auth === "none" ? [] : [{ [r.auth === "admin" ? "adminKey" : "sessionToken"]: [] }],
@@ -125,7 +134,7 @@ export function openApiDocument(baseUrl: string, version: string): Record<string
     components: {
       securitySchemes: {
         sessionToken: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
-        adminKey: { type: "http", scheme: "bearer", description: "Tenant admin key (ea_admin_...)" },
+        adminKey: { type: "http", scheme: "bearer", description: "Tenant admin key (ea_admin_..., every permission) or console session token (ea_cs_..., the user's role decides)" },
       },
       schemas: {
         Error: {
@@ -147,4 +156,9 @@ export function openApiDocument(baseUrl: string, version: string): Record<string
       },
     },
   };
+}
+
+function requiredPermissionText(method: string, path: string): string {
+  const p = routePermission(method, path);
+  return p ? `Requires the \`${p}\` permission.` : "Any signed-in caller.";
 }

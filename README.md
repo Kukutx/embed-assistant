@@ -13,6 +13,7 @@ It is built to be generic and boring to operate:
 - **Speaks MCP both ways.** Other AI tools (IDE agents, desktop assistants) can search your knowledge and get grounded answers through `/mcp`; assistants can use the tools of any remote MCP server. See [docs/mcp.md](docs/mcp.md).
 - **Fits into your systems.** [Standard Webhooks](https://www.standardwebhooks.com/) for conversations, answers, feedback, handoffs, syncs and audit entries; scoped API keys; NDJSON export.
 - **Learns where it falls short.** Insights show top questions, knowledge gaps, unhelpful answers, handoffs and tool usage, so you know which docs to write next.
+- **Team access with single sign-on.** People sign in to the console through any OpenID Connect provider (Entra ID, Google, Okta, Auth0, Keycloak…) and get a role: owner, admin, editor, analyst or agent. See [docs/access.md](docs/access.md).
 - **Ready for operations teams.** Audit log of every admin change (streamable to a SIEM), OpenTelemetry tracing with GenAI conventions to any OTLP backend, Prometheus metrics, request ids and structured JSON logs.
 - **Privacy built in.** Optional masking of e-mails, phone, card and IBAN numbers before storage, retention policies, and per-visitor erasure.
 - **Open protocol.** Versioned HTTP + Server-Sent Events API with an OpenAPI document. Build your own UI, bot or integration in any language.
@@ -113,7 +114,7 @@ With environment variables only, aliases are built for you (`standard`, `fast`, 
 
 - Public chat API: sessions, conversations, runs, SSE events with `Last-Event-ID` resume, cancel, feedback.
 - MCP server: `POST /mcp` (knowledge search, grounded answers, documents).
-- Admin API: assistants, widgets, knowledge, actions, MCP servers, webhooks, conversations (+ export, erasure), insights, usage, models, API keys, settings, audit log.
+- Admin API: assistants, widgets, knowledge, actions, MCP servers, webhooks, conversations (+ export, erasure), insights, usage, models, API keys, settings, audit log, people and single sign-on.
 - Machine-readable: `GET /openapi.json`. Overview: [docs/api.md](docs/api.md).
 
 ## Architecture

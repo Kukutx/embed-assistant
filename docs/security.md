@@ -15,6 +15,7 @@
 | Personal data in transcripts | Optional masking of e-mails, phone, card (Luhn) and IBAN (mod-97) numbers before storage; retention policy; permanent deletion by visitors and per-subject erasure by admins. |
 | Cost abuse | Rate limits per visitor and per IP, per-widget daily token budgets, input length limits, one active run per conversation. |
 | Undetected misuse of admin access | Append-only audit log of every admin change and export (actor, IP, request and trace id, redacted request body), viewable in the console, streamable to a SIEM via the `audit.recorded` webhook, and kept for `AUDIT_RETENTION_DAYS`. |
+| Shared admin keys, leavers keeping access | People sign in with your identity provider (OpenID Connect with PKCE, nonce and state; ID tokens verified against the provider's keys) and get a role with least privilege; disabling someone or changing their role ends their sessions at once. Invitations are linked by verified e-mail only, then by issuer and subject. |
 | Admin key theft | Keys are scoped (`admin` or `mcp`), stored as SHA-256 hashes, shown once, sent only as bearer tokens; admin API has no CORS. The console keeps the key in tab storage only and ships with a strict CSP. |
 
 Report vulnerabilities privately as described in [SECURITY.md](../SECURITY.md).

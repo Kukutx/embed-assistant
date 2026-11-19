@@ -228,7 +228,7 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
 
   route(app, { method: "delete", path: "/v1/admin/keys/{id}", tag: A, summary: "Revoke an API key", auth: "admin", response: { status: 204 } },
     async (c) => {
-      if (param(c, "id") === c.get("apiKey").id) throw badRequest("you cannot revoke the key you are using");
+      if (param(c, "id") === c.get("actor").id) throw badRequest("you cannot revoke the key you are using");
       const rows = await sql`UPDATE admin_keys SET revoked_at = now() WHERE tenant_id = ${tid(c)} AND id = ${param(c, "id")} AND revoked_at IS NULL RETURNING id`;
       if (!rows.length) throw notFound("key");
       return c.body(null, 204);

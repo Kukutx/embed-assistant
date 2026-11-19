@@ -76,6 +76,7 @@ Without `MODELS_CONFIG`, these aliases are generated from whatever is configured
 | Variable | Default | |
 |---|---|---|
 | `DEFAULT_RETENTION_DAYS` | `0` | Delete conversations older than this many days (checked hourly); `0` keeps them. Each tenant can override it in the console under *Settings*. |
+| `CONSOLE_SESSION_HOURS` | `12` | How long a single sign-on console session lasts. See [access.md](access.md). |
 | `AUDIT_RETENTION_DAYS` | `400` | Delete audit log entries older than this many days; `0` keeps them forever. |
 
 ## Tracing (OpenTelemetry)

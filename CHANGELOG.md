@@ -2,6 +2,15 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.5
+
+Team access.
+
+- **Console users with roles**: owner, admin, editor, analyst and agent, enforced on every admin endpoint from one permission table (new endpoints are closed to read-only roles by default). `GET /v1/admin/me`, `/v1/admin/users`, OpenAPI `x-permission` on every admin operation.
+- **Single sign-on with OpenID Connect** for any provider: authorization code flow with PKCE, nonce and state, ID token verification against the provider's keys, invitations linked by verified e-mail then by subject, optional auto-provisioning for allowed domains. Console *Team and sign-in* page; `CONSOLE_SESSION_HOURS`.
+- Sign-ins, refused sign-ins and sign-outs in the audit log; audit entries name the person who made each change.
+- The console shows only the pages a role may use.
+
 ## 1.0.4
 
 Operability and compliance.

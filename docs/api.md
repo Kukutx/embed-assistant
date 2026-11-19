@@ -45,7 +45,7 @@ Rules:
 
 ## Admin API
 
-`Authorization: Bearer ea_admin_…` (create the first key with `seed.js --new-admin-key`, more in the console under *Settings*). Resources:
+`Authorization: Bearer ea_admin_…` (create the first key with `seed.js --new-admin-key`, more in the console under *Settings*), or a console session token `ea_cs_…` from single sign-on, limited by the person's role ([access.md](access.md)). Resources:
 
 | Path | |
 |---|---|
@@ -58,6 +58,7 @@ Rules:
 | `/v1/admin/subjects/{subjectId}` (`DELETE`) | Erase everything about one visitor |
 | `/v1/admin/insights?days=`, `/usage`, `/models` | Analytics |
 | `/v1/admin/keys`, `/settings` | API keys, retention and budget |
+| `/v1/admin/me`, `/users`, `/sso`, `/logout` | Caller and permissions, people and roles, single sign-on |
 | `/v1/admin/audit-log` (`?action=&targetId=&actorId=&from=&to=&cursor=`) | Audit log of changes (read-only) |
 
 ### Audit log
