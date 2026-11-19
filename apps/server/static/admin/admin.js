@@ -29,10 +29,11 @@ class ApiError extends Error {
 }
 
 async function api(method, path, body) {
+  const form = body instanceof FormData;
   const res = await fetch(`/v1/admin${path}`, {
     method,
-    headers: { authorization: `Bearer ${getKey()}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    headers: { authorization: `Bearer ${getKey()}`, ...(body !== undefined && !form ? { "content-type": "application/json" } : {}) },
+    body: body === undefined ? undefined : form ? body : JSON.stringify(body),
   });
   if (res.status === 401) {
     sessionStorage.removeItem(KEY);
@@ -481,7 +482,13 @@ async function knowledge(main) {
                 h(
                   "tr",
                   {},
-                  h("td", {}, h("strong", { text: s.name }), h("div", { class: "muted small", text: s.url ? `${s.type}: ${s.url}` : s.type })),
+                  h(
+                    "td",
+                    {},
+                    h("strong", { text: s.name }),
+                    h("div", { class: "muted small", text: s.url ? `${s.type}: ${s.url}` : s.type }),
+                    s.syncIntervalHours ? h("div", { class: "muted small", text: `Re-syncs every ${s.syncIntervalHours} h` }) : null,
+                  ),
                   h("td", {}, s.access.map((a) => h("span", { class: "badge", text: a }))),
                   h("td", {}, badge(s.status), s.lastError ? h("div", { class: "small muted", text: s.lastError }) : null),
                   h("td", { text: String(s.documentCount) }),
@@ -490,6 +497,8 @@ async function knowledge(main) {
                     "td",
                     { class: "row" },
                     h("button", { class: "btn", onclick: () => documentsDialog(s), text: "Documents" }),
+                    s.type === "manual" ? h("button", { class: "btn", onclick: () => uploadDialog(s), text: "Upload files" }) : null,
+                    h("button", { class: "btn", onclick: () => sourceEdit(s), text: "Edit" }),
                     s.type !== "manual"
                       ? h("button", {
                           class: "btn",
@@ -528,6 +537,7 @@ function sourceForm(done) {
     url: h("input", { type: "url", placeholder: "https://example.com/sitemap.xml" }),
     access: h("input", { value: "public" }),
     maxPages: h("input", { type: "number", min: 1, max: 5000, value: "200" }),
+    sync: syncSelect(null),
   };
   const msg = h("div");
   const form = h(
@@ -542,6 +552,7 @@ function sourceForm(done) {
             url: f.type.value === "manual" ? null : f.url.value.trim(),
             access: csv(f.access.value),
             maxPages: Number(f.maxPages.value),
+            syncIntervalHours: f.type.value === "manual" ? null : Number(f.sync.value) || null,
           });
           dlg.close();
           done();
@@ -551,12 +562,97 @@ function sourceForm(done) {
       },
     },
     h("div", { class: "two" }, field("Name", f.name), field("Type", f.type)),
-    field("URL", f.url, "Sitemap or page URL. Ignored for manual sources."),
+    field("URL", f.url, "Sitemap (sitemap.xml), llms.txt index or page URL. Ignored for manual sources (add documents, upload files or push them through the API)."),
     h("div", { class: "two" }, field("Access tags", f.access, "public = everyone; users = any signed-in user; other tags = users whose token lists them in groups."), field("Max pages", f.maxPages)),
+    field("Keep in sync", f.sync, "Crawled sources only."),
     msg,
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Add" })),
   );
   const dlg = modal("Add knowledge", form);
+}
+
+const SYNC_OPTIONS = [[0, "Only when I click Sync"], [6, "Every 6 hours"], [24, "Daily"], [168, "Weekly"]];
+function syncSelect(current) {
+  const opts = SYNC_OPTIONS.some(([v]) => v === (current ?? 0)) ? SYNC_OPTIONS : [...SYNC_OPTIONS, [current, `Every ${current} hours`]];
+  const sel = h("select", {}, opts.map(([v, t]) => h("option", { value: String(v), text: t })));
+  sel.value = String(current ?? 0);
+  return sel;
+}
+
+function sourceEdit(s) {
+  const f = {
+    name: h("input", { value: s.name, required: true }),
+    url: h("input", { type: "url", value: s.url ?? "" }),
+    access: h("input", { value: s.access.join(", ") }),
+    maxPages: h("input", { type: "number", min: 1, max: 5000, value: String(s.maxPages) }),
+    sync: syncSelect(s.syncIntervalHours),
+  };
+  const msg = h("div");
+  const crawled = s.type !== "manual";
+  const form = h(
+    "form",
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        try {
+          const body = { name: f.name.value.trim(), access: csv(f.access.value) };
+          if (crawled) Object.assign(body, { url: f.url.value.trim(), maxPages: Number(f.maxPages.value), syncIntervalHours: Number(f.sync.value) || null });
+          await api("PATCH", `/sources/${s.id}`, body);
+          dlg.close();
+          route();
+        } catch (err) {
+          msg.replaceChildren(notice(errorText(err), true));
+        }
+      },
+    },
+    field("Name", f.name),
+    crawled ? field("URL", f.url) : null,
+    field("Access tags", f.access, "Changing tags applies to all stored documents immediately."),
+    crawled ? h("div", { class: "two" }, field("Max pages", f.maxPages), field("Keep in sync", f.sync)) : null,
+    msg,
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Save" })),
+  );
+  const dlg = modal(`Edit ${s.name}`, form);
+}
+
+function uploadDialog(s) {
+  const input = h("input", { type: "file", multiple: true, accept: ".pdf,.docx,.md,.markdown,.txt,.html,.htm,.csv,.json" });
+  const out = h("div");
+  const btn = h("button", { class: "btn primary", type: "submit", text: "Upload" });
+  const form = h(
+    "form",
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        if (!input.files.length) return;
+        const fd = new FormData();
+        for (const file of input.files) fd.append("file", file);
+        btn.disabled = true;
+        out.replaceChildren(h("p", { class: "muted", text: `Reading ${input.files.length} file(s)…` }));
+        try {
+          const { results } = await api("POST", `/sources/${s.id}/files`, fd);
+          out.replaceChildren(
+            h(
+              "table",
+              {},
+              h("tbody", {}, results.map((r) =>
+                h("tr", {}, h("td", { text: r.name }), h("td", {}, r.error ? h("span", { class: "bad", text: r.error }) : h("span", { class: "badge ok", text: r.changed ? "added" : "unchanged" })), h("td", { class: "small muted", text: r.title ?? "" })),
+              )),
+            ),
+          );
+        } catch (err) {
+          out.replaceChildren(notice(errorText(err), true));
+        } finally {
+          btn.disabled = false;
+        }
+      },
+    },
+    field("Files", input, "PDF, Word (.docx), Markdown, HTML or text, up to 20 MB each. A file with the same name replaces the earlier version. Scanned PDFs need OCR first."),
+    h("div", { class: "row" }, btn),
+    out,
+  );
+  const dlg = modal(`Upload to ${s.name}`, form, { wide: true });
+  dlg.addEventListener("close", () => route());
 }
 
 async function documentsDialog(s) {

@@ -49,7 +49,7 @@ Rules:
 | Path | |
 |---|---|
 | `/v1/admin/assistants`, `/widgets` (+ `/rotate-secret`, `/snippet`) | Configuration |
-| `/v1/admin/sources` (+ `/sync`, `/documents`) | Knowledge |
+| `/v1/admin/sources` (+ `PATCH`, `/sync`, `/documents`, `/files` multipart upload) | Knowledge |
 | `/v1/admin/actions` (+ `/test`) | HTTP tools |
 | `/v1/admin/mcp-servers` (+ `/refresh`, `/test`) | Remote MCP servers as tools ([mcp.md](mcp.md)) |
 | `/v1/admin/webhooks` (+ `/test`, `/rotate-secret`, `/deliveries`) | Webhooks |

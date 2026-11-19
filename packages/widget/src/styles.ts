@@ -22,6 +22,9 @@ export const STYLES = /* css */ `
   .ea-panel.ea-open{transform:none}
   .ea-expand{display:none!important}
 }
+/* inline mode: fills the host element, sits in the page flow */
+.ea-panel.ea-inline,.ea-panel.ea-inline.ea-open{position:relative;inset:auto;width:100%;height:100%;min-height:360px;
+  border-radius:var(--ea-radius);border:1px solid var(--ea-border);box-shadow:none;transform:none;transition:none}
 @media (prefers-reduced-motion:reduce){.ea-panel{transition:none}}
 .ea-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 

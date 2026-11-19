@@ -52,6 +52,7 @@ Add your site's origin (for example `https://www.example.com`) to the widget's *
 | `data-launcher="false"` | Hide the floating button and open the chat from your own UI. |
 | `data-open` | Open on page load. |
 | `data-page-context="false"` | Don't send the page URL and title with questions. |
+| `data-target="#help"` | Inline mode: render the chat inside that element (sized by it, always open, no floating button), e.g. on a help-center page or in an app sidebar. |
 
 JavaScript API, available as soon as the loader runs (calls are queued until the UI loads):
 
@@ -85,9 +86,10 @@ Anonymous visitors only see knowledge tagged `public`. To recognise a user, your
 
 ## Knowledge
 
-- **Website / sitemap**: crawled in the background with an SSRF-safe fetcher (private networks are blocked), re-synced on demand. Pages that disappear are removed.
+- **Website, sitemap or [llms.txt](https://llmstxt.org)**: crawled in the background with an SSRF-safe fetcher (private networks are blocked), on demand or on a schedule (every 6 hours, daily, weekly…). HTML, Markdown, text and PDF pages are read; pages that disappear are removed.
+- **Files**: upload PDF, Word (.docx), Markdown, HTML or text files in the console or with `POST /v1/admin/sources/{id}/files` (multipart). Uploading the same file name again replaces it.
 - **Push**: `PUT /v1/admin/sources/{id}/documents` with `{ title, content, url?, externalId? }` from a CMS, ticketing system, docs build or script. Unchanged content is a no-op.
-- **Access tags** on each source decide who can get answers from it.
+- **Access tags** on each source decide who can get answers from it. Changing them re-tags everything already stored.
 
 ## Tools and handoff
 

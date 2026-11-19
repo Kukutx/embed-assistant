@@ -113,6 +113,7 @@ export interface SourceRow {
   url: string | null;
   access: string[];
   max_pages: number;
+  sync_interval_hours: number | null;
   status: KnowledgeSource["status"];
   last_error: string | null;
   last_ingested_at: Date | null;
@@ -190,6 +191,8 @@ export const toSource = (r: SourceRow): KnowledgeSource => ({
   status: r.status,
   lastError: r.last_error,
   documentCount: Number(r.document_count ?? 0),
+  maxPages: r.max_pages,
+  syncIntervalHours: r.sync_interval_hours,
   lastIngestedAt: isoOrNull(r.last_ingested_at),
   createdAt: iso(r.created_at),
 });
@@ -567,14 +570,47 @@ export async function getSource(sql: Tx, tenantId: string, id: string): Promise<
 export async function createSource(
   sql: Tx,
   tenantId: string,
-  input: { name: string; type: SourceRow["type"]; url: string | null; access: string[]; maxPages: number },
+  input: { name: string; type: SourceRow["type"]; url: string | null; access: string[]; maxPages: number; syncIntervalHours?: number | null },
 ): Promise<SourceRow> {
   const id = newId("src");
   const rows = await sql<SourceRow[]>`
-    INSERT INTO knowledge_sources (id, tenant_id, name, type, url, access, max_pages)
-    VALUES (${id}, ${tenantId}, ${input.name}, ${input.type}, ${input.url}, ${sql.array(input.access)}, ${input.maxPages})
+    INSERT INTO knowledge_sources (id, tenant_id, name, type, url, access, max_pages, sync_interval_hours)
+    VALUES (${id}, ${tenantId}, ${input.name}, ${input.type}, ${input.url}, ${sql.array(input.access)}, ${input.maxPages},
+            ${input.type === "manual" ? null : (input.syncIntervalHours ?? null)})
     RETURNING *, 0 AS document_count`;
   return rows[0]!;
+}
+
+export async function updateSource(
+  sql: Sql,
+  tenantId: string,
+  id: string,
+  p: { name?: string; url?: string; access?: string[]; maxPages?: number; syncIntervalHours?: number | null },
+): Promise<SourceRow | null> {
+  return sql.begin(async (tx) => {
+    const c = await getSource(tx, tenantId, id);
+    if (!c) return null;
+    const access = p.access ?? c.access;
+    await tx`
+      UPDATE knowledge_sources SET name = ${p.name ?? c.name}, url = ${c.type === "manual" ? null : (p.url ?? c.url)},
+        access = ${tx.array(access)}, max_pages = ${p.maxPages ?? c.max_pages},
+        sync_interval_hours = ${c.type === "manual" ? null : p.syncIntervalHours !== undefined ? p.syncIntervalHours : c.sync_interval_hours},
+        updated_at = now()
+      WHERE tenant_id = ${tenantId} AND id = ${id}`;
+    if (p.access) await tx`UPDATE chunks SET access = ${tx.array(access)} WHERE tenant_id = ${tenantId} AND source_id = ${id}`;
+    return getSource(tx, tenantId, id);
+  });
+}
+
+/** Crawled sources whose sync interval has elapsed and that are not already queued. */
+export async function dueSources(sql: Sql, limit = 50): Promise<{ id: string; tenant_id: string }[]> {
+  return sql<{ id: string; tenant_id: string }[]>`
+    SELECT id, tenant_id FROM knowledge_sources
+    WHERE type <> 'manual' AND sync_interval_hours IS NOT NULL AND status NOT IN ('queued', 'running')
+      -- updated_at moves with every status change, so it marks the last attempt (successful or not).
+      AND updated_at < now() - make_interval(hours => sync_interval_hours)
+    ORDER BY updated_at
+    LIMIT ${limit}`;
 }
 
 export async function deleteSource(sql: Tx, tenantId: string, id: string): Promise<boolean> {

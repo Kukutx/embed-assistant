@@ -1,12 +1,14 @@
 import { emitWebhook } from "../webhooks/webhooks.js";
 import type { Logger } from "pino";
 import type { Sql } from "../db/pool.js";
-import { getSource, setSourceStatus, type SourceRow } from "../db/store.js";
+import { dueSources, getSource, setSourceStatus, type SourceRow } from "../db/store.js";
+import { enqueueJob } from "./jobs.js";
 import { sha256Hex } from "../lib/crypto.js";
 import { newId } from "../lib/ids.js";
 import type { EmbeddingModel } from "../models/types.js";
 import { chunkText } from "./chunk.js";
-import { extractPage, parseSitemap } from "./html.js";
+import { extractDocument, parseLlmsTxt, UnsupportedDocumentError } from "./extract.js";
+import { parseSitemap } from "./html.js";
 import { safeFetch } from "./safeFetch.js";
 import { toSearchText } from "./tokenize.js";
 
@@ -25,6 +27,7 @@ export interface DocumentPayload {
 }
 
 const MAX_HNSW_DIM = 2000;
+const CRAWL_ACCEPT = "text/html,application/xhtml+xml,text/markdown,text/plain;q=0.9,application/pdf;q=0.8,*/*;q=0.5";
 const indexedDims = new Set<number>();
 
 /**
@@ -106,6 +109,12 @@ export async function ingestSource(deps: IngestDeps, tenantId: string, sourceId:
     let pages: string[];
     if (source.type === "url") {
       pages = [source.url!];
+    } else if (/\/llms(-full)?\.txt$/i.test(new URL(source.url!).pathname)) {
+      // llms.txt: a markdown index of the pages that matter, often with .md versions.
+      const res = await safeFetch(source.url!, { ...fetchOpts, accept: "text/markdown,text/plain,*/*;q=0.5" });
+      if (res.status >= 400) throw new Error(`llms.txt HTTP ${res.status}`);
+      pages = parseLlmsTxt(res.body, res.url).slice(0, source.max_pages);
+      if (pages.length === 0) throw new Error("llms.txt contained no links");
     } else {
       pages = await collectSitemapUrls(source.url!, source.max_pages, fetchOpts);
       if (pages.length === 0) throw new Error("sitemap contained no URLs");
@@ -117,13 +126,13 @@ export async function ingestSource(deps: IngestDeps, tenantId: string, sourceId:
     const worker = async () => {
       for (let url = queue.shift(); url; url = queue.shift()) {
         try {
-          const res = await safeFetch(url, fetchOpts);
+          const res = await safeFetch(url, { ...fetchOpts, maxBytes: 20 * 1024 * 1024, accept: CRAWL_ACCEPT });
           if (res.status >= 400) throw new Error(`HTTP ${res.status}`);
-          const isHtml = /html/i.test(res.contentType) || /^\s*</.test(res.body);
-          const page = isHtml
-            ? extractPage(res.body, res.url)
-            : { title: titleFromUrl(res.url), text: res.body, canonical: null };
-          if (page.text.trim().length < 20) continue;
+          const page = await extractDocument(res.bytes, { contentType: res.contentType, name: res.url, baseUrl: res.url }).catch((err) => {
+            if (err instanceof UnsupportedDocumentError) return null;
+            throw err;
+          });
+          if (!page || page.text.trim().length < 20) continue;
           const externalId = page.canonical ?? res.url;
           await upsertDocument(deps, source, { externalId, title: page.title, url: externalId, content: page.text });
           seen.add(externalId);
@@ -173,8 +182,12 @@ async function collectSitemapUrls(
   return urls;
 }
 
-function titleFromUrl(url: string): string {
-  const u = new URL(url);
-  const last = u.pathname.split("/").filter(Boolean).pop();
-  return last ? decodeURIComponent(last).replace(/[-_]+/g, " ").replace(/\.\w+$/, "") : u.hostname;
+/** Queue a crawl for every source whose sync interval has elapsed. Returns how many were queued. */
+export async function scheduleDueSyncs(sql: Sql): Promise<number> {
+  const due = await dueSources(sql);
+  for (const src of due) {
+    await setSourceStatus(sql, src.tenant_id, src.id, "queued");
+    await enqueueJob(sql, src.tenant_id, "ingest_source", { sourceId: src.id });
+  }
+  return due.length;
 }

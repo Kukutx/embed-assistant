@@ -186,6 +186,10 @@ export const KnowledgeSource = z.object({
   status: IngestStatus,
   lastError: z.string().nullable(),
   documentCount: z.number().int(),
+  /** Pages fetched at most per crawl (sitemap and llms.txt sources). */
+  maxPages: z.number().int(),
+  /** Re-crawl automatically every N hours; null = only on demand. */
+  syncIntervalHours: z.number().int().nullable(),
   lastIngestedAt: Timestamp.nullable(),
   createdAt: Timestamp,
 });
@@ -198,14 +202,41 @@ export const KnowledgeSourceInput = z
     url: HttpUrl.nullable().default(null),
     /** Who may see answers from this source: `public`, `users`, or a custom group. */
     access: z.array(AccessTag).min(1).max(20).default(["public"]),
-    /** sitemap only: maximum pages to fetch. */
+    /** sitemap and llms.txt: maximum pages to fetch. */
     maxPages: z.number().int().min(1).max(5000).default(200),
+    /** url, sitemap and llms.txt sources: re-crawl every N hours (null = only on demand). */
+    syncIntervalHours: z.number().int().min(1).max(720).nullable().default(null),
   })
   .refine((v) => v.type === "manual" || v.url !== null, {
     message: "url is required for url and sitemap sources",
     path: ["url"],
   });
 export type KnowledgeSourceInput = z.infer<typeof KnowledgeSourceInput>;
+
+/** PATCH body for a source. Changing access re-tags every stored passage immediately. */
+export const KnowledgeSourcePatch = z
+  .object({
+    name: z.string().min(1).max(200),
+    url: HttpUrl,
+    access: z.array(AccessTag).min(1).max(20),
+    maxPages: z.number().int().min(1).max(5000),
+    syncIntervalHours: z.number().int().min(1).max(720).nullable(),
+  })
+  .partial();
+export type KnowledgeSourcePatch = z.infer<typeof KnowledgeSourcePatch>;
+
+/** Result of uploading files to a source (one entry per file). */
+export const FileUploadResult = z.object({
+  results: z.array(
+    z.object({
+      name: z.string(),
+      documentId: z.string().nullable(),
+      title: z.string().nullable(),
+      changed: z.boolean(),
+      error: z.string().nullable(),
+    }),
+  ),
+});
 
 export const DocumentInput = z.object({
   title: z.string().min(1).max(500),

@@ -64,7 +64,10 @@ export function createApp(s: Services): Hono<AppEnv> {
     app.use(p, publicCors());
   }
   // Bound request bodies before anything parses them.
-  app.use("/v1/admin/*", bodyLimit({ maxSize: 4 * 1024 * 1024, onError: tooLarge }));
+  // File uploads get a larger limit; everything else in the admin API stays small.
+  const adminLimit = bodyLimit({ maxSize: 4 * 1024 * 1024, onError: tooLarge });
+  const uploadLimit = bodyLimit({ maxSize: 100 * 1024 * 1024, onError: tooLarge });
+  app.use("/v1/admin/*", (c, next) => (/^\/v1\/admin\/sources\/[^/]+\/files$/.test(c.req.path) ? uploadLimit(c, next) : adminLimit(c, next)));
   app.use("/mcp", bodyLimit({ maxSize: 256 * 1024, onError: tooLarge }));
   app.use("/v1/*", async (c, next) => (c.req.path.startsWith("/v1/admin/") ? next() : publicBodyLimit(c, next)));
   const chatAuth = sessionAuth(s, widgets);

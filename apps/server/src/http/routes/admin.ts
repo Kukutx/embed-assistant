@@ -9,6 +9,8 @@ import {
   KnowledgeDocument,
   KnowledgeSource,
   KnowledgeSourceInput,
+  KnowledgeSourcePatch,
+  FileUploadResult,
   MessageList,
   ModelAliasInfo,
   UsageSummary,
@@ -43,9 +45,11 @@ import {
   toWidget,
   updateAssistant,
   updateWidget,
+  updateSource,
 } from "../../db/store.js";
 import { enqueueJob } from "../../knowledge/jobs.js";
 import { upsertDocument } from "../../knowledge/ingest.js";
+import { extractDocument, UnsupportedDocumentError } from "../../knowledge/extract.js";
 import { encrypt } from "../../lib/crypto.js";
 import { badRequest, notFound } from "../../lib/errors.js";
 import { randomToken } from "../../lib/ids.js";
@@ -193,7 +197,9 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
 
   route(app, {
       method: "post", path: "/v1/admin/sources", tag: A, summary: "Create a knowledge source",
-      description: "url and sitemap sources are crawled in the background right away. manual sources are filled with PUT .../documents.",
+      description:
+        "url and sitemap sources are crawled in the background right away (a sitemap URL ending in /llms.txt is read as an llms.txt index). " +
+        "manual sources are filled with PUT .../documents or by uploading files.",
       auth: "admin", body: KnowledgeSourceInput, response: { status: 201, schema: KnowledgeSource },
     },
     async (c, { body }) => {
@@ -224,6 +230,51 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
         src.status = "queued";
       }
       return c.json(toSource(src), 202);
+    });
+
+  route(app, { method: "patch", path: "/v1/admin/sources/{id}", tag: A, summary: "Update a knowledge source", auth: "admin", body: KnowledgeSourcePatch, response: { status: 200, schema: KnowledgeSource } },
+    async (c, { body }) => {
+      const src = await updateSource(sql, tid(c), param(c, "id"), Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)));
+      if (!src) throw notFound("source");
+      return c.json(toSource(src));
+    });
+
+  route(app, {
+      method: "post", path: "/v1/admin/sources/{id}/files", tag: A, summary: "Upload files to a manual source",
+      description:
+        "multipart/form-data with one or more `file` fields (PDF, DOCX, HTML, Markdown, plain text; up to 20 MB each, 25 files per request). " +
+        "Uploading a file with the same name replaces the earlier version.",
+      auth: "admin", response: { status: 200, schema: FileUploadResult },
+    },
+    async (c) => {
+      const src = await getSource(sql, tid(c), param(c, "id"));
+      if (!src) throw notFound("source");
+      if (src.type !== "manual") throw badRequest("files can only be added to manual sources (crawled sources would remove them on the next sync)");
+      let form: Record<string, string | File | (string | File)[]>;
+      try {
+        form = await c.req.parseBody({ all: true });
+      } catch {
+        throw badRequest("expected multipart/form-data");
+      }
+      const files = ([] as (string | File)[]).concat(form.file ?? form["file[]"] ?? []).filter((f): f is File => typeof f !== "string");
+      if (!files.length) throw badRequest("no files: send them as multipart/form-data fields named \"file\"");
+      if (files.length > 25) throw badRequest("at most 25 files per request");
+      const results = [];
+      for (const f of files) {
+        const name = (f.name || "upload").replace(/[\\/]+/g, "_").slice(0, 200);
+        try {
+          if (f.size > 20 * 1024 * 1024) throw new UnsupportedDocumentError("file larger than 20 MB");
+          const doc = await extractDocument(Buffer.from(await f.arrayBuffer()), { contentType: f.type, name });
+          if (!doc.text.trim()) throw new UnsupportedDocumentError("no text found");
+          const r = await upsertDocument(s.ingest, src, { externalId: `file:${name}`, title: doc.title, url: null, content: doc.text });
+          results.push({ name, documentId: r.id, title: doc.title, changed: r.changed, error: null });
+        } catch (err) {
+          if (!(err instanceof UnsupportedDocumentError)) s.log.warn({ err, file: name }, "file ingest failed");
+          results.push({ name, documentId: null, title: null, changed: false, error: err instanceof UnsupportedDocumentError ? err.message : "could not read this file" });
+        }
+      }
+      if (results.some((x) => x.documentId)) await setSourceStatus(sql, tid(c), src.id, "succeeded");
+      return c.json({ results });
     });
 
   route(app, { method: "delete", path: "/v1/admin/sources/{id}", tag: A, summary: "Delete a source and all its documents", auth: "admin", response: { status: 204 } },

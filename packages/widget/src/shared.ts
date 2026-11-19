@@ -53,6 +53,13 @@ export interface WidgetOptions {
   pageContext: boolean;
   /** z-index of the floating UI. */
   zIndex: number;
+  /**
+   * CSS selector of an element to render the chat inside (inline mode: no
+   * floating button, always open, sized by the element).
+   */
+  target?: string | undefined;
+  /** Set by the loader when the chat is rendered inline in `target`. */
+  inline?: boolean;
 }
 
 /** Public JavaScript API: `window.EmbedAssistant`. Calls made before the app loads are queued. */

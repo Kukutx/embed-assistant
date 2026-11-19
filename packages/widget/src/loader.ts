@@ -58,6 +58,7 @@ import {
     open: flag("open", "open", false),
     pageContext: flag("pageContext", "pageContext", true),
     zIndex: Number(pick("zIndex", "zIndex")) || 2147483000,
+    target: pick("target", "target"),
   };
   const assetBase = script?.src ? script.src.replace(/[^/]*$/, "") : `${options.apiBase}/widget/`;
 
@@ -84,6 +85,20 @@ import {
   setLauncherStyle(options.accentColor ?? DEFAULT_ACCENT, options.position ?? "bottom-right");
 
   let launcher: HTMLButtonElement | null = null;
+  // Inline mode: render inside a page element instead of floating.
+  let container: Element | null = null;
+  if (options.target) {
+    try {
+      container = document.querySelector(options.target);
+    } catch {
+      container = null;
+    }
+    if (container) {
+      options.inline = true;
+      options.launcher = false;
+      host.style.cssText = "all:initial;display:block;width:100%;height:100%;min-height:inherit;";
+    } else console.warn(`[embed-assistant] target ${options.target} not found; using the floating button`);
+  }
   if (options.launcher) {
     launcher = document.createElement("button");
     launcher.type = "button";
@@ -185,7 +200,7 @@ import {
 
   // ---------------------------------------------------------------- boot
   const boot = () => {
-    document.body.appendChild(host);
+    (container ?? document.body).appendChild(host);
     // Prefetch public config (HTTP-cached) to theme the launcher and confirm the site is allowed.
     fetch(`${options.apiBase}/v1/widgets/${encodeURIComponent(options.widgetId)}/config`, { credentials: "omit" })
       .then(async (res) => {
@@ -194,7 +209,7 @@ import {
         setLauncherStyle(options.accentColor ?? cfg.theme.accentColor, options.position ?? cfg.theme.position);
         if (launcher) launcher.hidden = false;
         emit("ready");
-        if (options.open) api.open();
+        if (options.open || options.inline) api.open();
       })
       .catch((err: Error) => {
         console.warn("[embed-assistant] widget unavailable on this site:", err.message);

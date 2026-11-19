@@ -74,6 +74,8 @@ export interface FetchedDocument {
   status: number;
   contentType: string;
   body: string;
+  /** Raw response bytes (for binary documents such as PDF). */
+  bytes: Buffer;
   /** Response headers (lower-case names). */
   headers: Record<string, string>;
 }
@@ -101,6 +103,8 @@ function makeAgent(allowPrivate: boolean): Agent {
 }
 
 const agents = new Map<boolean, Agent>();
+
+const decoded = (bytes: Buffer) => ({ bytes, body: bytes.toString("utf8") });
 
 export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise<FetchedDocument> {
   const maxBytes = opts.maxBytes ?? 5 * 1024 * 1024;
@@ -153,7 +157,7 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
       url: url.toString(),
       status: res.status,
       contentType: res.headers.get("content-type") ?? "",
-      body: Buffer.concat(chunks).toString("utf8"),
+      ...decoded(Buffer.concat(chunks)),
       headers: Object.fromEntries(res.headers),
     };
   }

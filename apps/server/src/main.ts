@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { loadConfig } from "./config.js";
 import { migrate } from "./db/migrate.js";
 import { createApp } from "./http/app.js";
-import { ingestSource } from "./knowledge/ingest.js";
+import { ingestSource, scheduleDueSyncs } from "./knowledge/ingest.js";
 import { JobWorker } from "./knowledge/jobs.js";
 import { metrics } from "./lib/metrics.js";
 import { purgeExpired } from "./lib/retention.js";
@@ -35,6 +35,8 @@ worker?.start();
 const timers = [
   setInterval(() => void s.executor.reapStale().catch((err) => log.warn({ err }, "reaper failed")), 15_000),
   setInterval(() => void s.limiter.sweep().catch(() => {}), 3600_000),
+  // Scheduled re-crawls (sources with syncIntervalHours).
+  setInterval(() => void scheduleDueSyncs(sql).catch((err) => log.warn({ err }, "sync scheduler failed")), 5 * 60_000),
   setInterval(
     () =>
       void purgeExpired(sql, cfg.DEFAULT_RETENTION_DAYS)

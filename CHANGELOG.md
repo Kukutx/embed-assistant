@@ -2,6 +2,17 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.3
+
+Knowledge from more places, and inline embedding.
+
+- **File uploads** to manual sources: PDF (page-aware), Word .docx (headings kept), Markdown (front matter title), HTML, text. Console upload dialog and `POST /v1/admin/sources/{id}/files` (multipart, 20 MB per file). Re-uploading a file replaces it.
+- **llms.txt** sources: a sitemap URL ending in `/llms.txt` is read as an [llms.txt](https://llmstxt.org) index.
+- The crawler reads PDF and Markdown pages as well as HTML.
+- **Scheduled re-sync** of crawled sources (`syncIntervalHours`).
+- **Edit sources** (`PATCH /v1/admin/sources/{id}`): name, URL, max pages, schedule, and access tags, which re-tag every stored passage immediately.
+- **Inline mode** for the widget: `data-target="#element"` renders the chat inside a page element (help-center pages, app sidebars), always open, without the floating button.
+
 ## 1.0.2
 
 Model Context Protocol, both directions.

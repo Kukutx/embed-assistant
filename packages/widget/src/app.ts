@@ -200,12 +200,14 @@ class App {
       })
       .catch((err) => this.showBanner(this.errorText(err)));
     // On phones, focusing would pop the keyboard over the greeting; let the user tap the input.
-    if (!this.mediaMobile?.matches) requestAnimationFrame(() => this.input.focus({ preventScroll: true }));
+    if (this.ctx.options.inline) {
+      /* never steal focus from the page on load */
+    } else if (!this.mediaMobile?.matches) requestAnimationFrame(() => this.input.focus({ preventScroll: true }));
     else requestAnimationFrame(() => this.panel.querySelector<HTMLButtonElement>("[data-role=close]")?.focus({ preventScroll: true }));
   }
 
   private close() {
-    if (!this.opened) return;
+    if (!this.opened || this.ctx.options.inline) return;
     this.opened = false;
     this.panel.classList.remove("ea-open");
     this.panel.setAttribute("aria-hidden", "true");
@@ -266,6 +268,13 @@ class App {
       this.live,
     );
     this.ctx.root.appendChild(this.panel);
+    if (this.ctx.options.inline) {
+      // Part of the page: no dialog semantics, no close or expand.
+      this.panel.classList.add("ea-inline");
+      this.panel.setAttribute("role", "region");
+      closeBtn.hidden = true;
+      this.expandBtn.hidden = true;
+    }
 
     // events
     closeBtn.addEventListener("click", () => this.close());
@@ -287,10 +296,10 @@ class App {
       }
     });
     this.panel.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !this.ctx.options.inline) {
         e.stopPropagation();
         this.close();
-      } else if (e.key === "Tab" && this.mediaMobile?.matches) this.trapFocus(e);
+      } else if (e.key === "Tab" && this.mediaMobile?.matches && !this.ctx.options.inline) this.trapFocus(e);
     });
     this.mediaDark?.addEventListener?.("change", () => this.applyTheme());
     this.mediaMobile?.addEventListener?.("change", () => this.syncLauncher());
