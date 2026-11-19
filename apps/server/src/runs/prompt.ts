@@ -18,6 +18,8 @@ const HISTORY_MAX_TURNS = 12;
 export function buildSystemPrompt(
   p: Pick<PromptInput, "assistantName" | "instructions" | "groundedOnly"> & {
     tools?: { search: boolean; handoff: boolean; actions: boolean } | undefined;
+    /** What the assistant remembers about a signed-in user (see memory/memories.ts). */
+    memory?: string | undefined;
   },
 ): string {
   const t = p.tools;
@@ -50,6 +52,7 @@ export function buildSystemPrompt(
     `You are ${p.assistantName}, an AI assistant embedded in a website to help its visitors.`,
     p.instructions.trim() ? `\nInstructions from the site owner:\n${p.instructions.trim()}` : "",
     `\nRules:\n${rules.map((r) => `- ${r}`).join("\n")}`,
+    p.memory ?? "",
   ].join("\n");
 }
 

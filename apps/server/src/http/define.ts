@@ -2,7 +2,7 @@ import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { PROTOCOL_VERSION } from "@embed-assistant/protocol";
 import { can, routePermission } from "../auth/permissions.js";
-import { badRequest, forbidden } from "../lib/errors.js";
+import { badRequest, forbidden, unauthorized } from "../lib/errors.js";
 import type { AppEnv } from "./env.js";
 
 /**
@@ -47,6 +47,8 @@ export function route<B extends z.ZodType | undefined = undefined, Q extends z.Z
       const actor = c.get("actor");
       if (!actor || !can(actor.role, permission)) throw forbidden(`your role (${actor?.role ?? "none"}) does not allow this (needs ${permission})`);
     }
+    // Fail closed if a session route was mounted without the session middleware.
+    if (spec.auth === "session" && !c.get("session")) throw unauthorized();
     let body: unknown = undefined;
     let query: unknown = undefined;
     if (spec.body) {

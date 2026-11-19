@@ -43,6 +43,16 @@ export interface Strings {
   agentJoined: string;
   backToAssistant: string;
   messagePerson: string;
+  /** Tool chip when the assistant saves or deletes a memory. */
+  memoryUpdated: string;
+  memoryTitle: string;
+  memoryHint: string;
+  memoryEmpty: string;
+  forget: string;
+  forgetAll: string;
+  voiceStart: string;
+  voiceStop: string;
+  listening: string;
 }
 
 const en: Strings = {
@@ -88,6 +98,15 @@ const en: Strings = {
   agentJoined: "{name} joined the conversation",
   backToAssistant: "You are chatting with the assistant again",
   messagePerson: "Message {name}…",
+  memoryUpdated: "Memory updated",
+  memoryTitle: "What I remember",
+  memoryHint: "Things you told me that I keep across conversations. Delete anything you don't want me to remember.",
+  memoryEmpty: "Nothing remembered yet.",
+  forget: "Forget",
+  forgetAll: "Forget everything",
+  voiceStart: "Speak your question",
+  voiceStop: "Stop listening",
+  listening: "Listening…",
 };
 
 const zh: Strings = {
@@ -133,6 +152,15 @@ const zh: Strings = {
   agentJoined: "{name} 已加入对话",
   backToAssistant: "已切换回 AI 助手",
   messagePerson: "给 {name} 发消息…",
+  memoryUpdated: "已更新记忆",
+  memoryTitle: "我记住的内容",
+  memoryHint: "你告诉过我、我会在之后的对话中记住的信息。不想让我记住的可以随时删除。",
+  memoryEmpty: "还没有记住任何内容。",
+  forget: "忘记",
+  forgetAll: "全部忘记",
+  voiceStart: "语音提问",
+  voiceStop: "停止聆听",
+  listening: "正在聆听…",
 };
 
 const it: Strings = {
@@ -178,6 +206,15 @@ const it: Strings = {
   agentJoined: "{name} si è unito alla conversazione",
   backToAssistant: "Stai di nuovo parlando con l'assistente",
   messagePerson: "Scrivi a {name}…",
+  memoryUpdated: "Memoria aggiornata",
+  memoryTitle: "Cosa ricordo",
+  memoryHint: "Cose che mi hai detto e che ricordo tra una conversazione e l'altra. Elimina ciò che non vuoi che ricordi.",
+  memoryEmpty: "Non ricordo ancora nulla.",
+  forget: "Dimentica",
+  forgetAll: "Dimentica tutto",
+  voiceStart: "Fai la domanda a voce",
+  voiceStop: "Smetti di ascoltare",
+  listening: "Ti ascolto…",
 };
 
 const es: Strings = {
@@ -223,6 +260,15 @@ const es: Strings = {
   agentJoined: "{name} se unió a la conversación",
   backToAssistant: "Vuelves a hablar con el asistente",
   messagePerson: "Escribe a {name}…",
+  memoryUpdated: "Memoria actualizada",
+  memoryTitle: "Lo que recuerdo",
+  memoryHint: "Cosas que me contaste y que recuerdo entre conversaciones. Borra lo que no quieras que recuerde.",
+  memoryEmpty: "Todavía no recuerdo nada.",
+  forget: "Olvidar",
+  forgetAll: "Olvidar todo",
+  voiceStart: "Haz tu pregunta por voz",
+  voiceStop: "Dejar de escuchar",
+  listening: "Escuchando…",
 };
 
 const fr: Strings = {
@@ -268,6 +314,15 @@ const fr: Strings = {
   agentJoined: "{name} a rejoint la conversation",
   backToAssistant: "Vous discutez de nouveau avec l'assistant",
   messagePerson: "Écrire à {name}…",
+  memoryUpdated: "Mémoire mise à jour",
+  memoryTitle: "Ce dont je me souviens",
+  memoryHint: "Ce que vous m'avez dit et que je garde d'une conversation à l'autre. Supprimez ce que vous ne voulez pas que je retienne.",
+  memoryEmpty: "Rien en mémoire pour l'instant.",
+  forget: "Oublier",
+  forgetAll: "Tout oublier",
+  voiceStart: "Poser la question à voix haute",
+  voiceStop: "Arrêter l'écoute",
+  listening: "À l'écoute…",
 };
 
 const de: Strings = {
@@ -313,6 +368,15 @@ const de: Strings = {
   agentJoined: "{name} ist dem Gespräch beigetreten",
   backToAssistant: "Sie chatten wieder mit dem Assistenten",
   messagePerson: "Nachricht an {name}…",
+  memoryUpdated: "Erinnerung aktualisiert",
+  memoryTitle: "Was ich mir merke",
+  memoryHint: "Was du mir erzählt hast und ich mir über Unterhaltungen hinweg merke. Lösche, was ich nicht wissen soll.",
+  memoryEmpty: "Noch nichts gemerkt.",
+  forget: "Vergessen",
+  forgetAll: "Alles vergessen",
+  voiceStart: "Frage sprechen",
+  voiceStop: "Zuhören beenden",
+  listening: "Ich höre zu…",
 };
 
 const ja: Strings = {
@@ -358,6 +422,15 @@ const ja: Strings = {
   agentJoined: "{name} が会話に参加しました",
   backToAssistant: "アシスタントとの会話に戻りました",
   messagePerson: "{name} にメッセージ…",
+  memoryUpdated: "記憶を更新しました",
+  memoryTitle: "覚えていること",
+  memoryHint: "会話をまたいで覚えている、あなたから聞いた情報です。覚えてほしくないものは削除できます。",
+  memoryEmpty: "まだ何も覚えていません。",
+  forget: "忘れる",
+  forgetAll: "すべて忘れる",
+  voiceStart: "音声で質問",
+  voiceStop: "聞き取りを停止",
+  listening: "聞き取り中…",
 };
 
 const pt: Strings = {
@@ -403,6 +476,15 @@ const pt: Strings = {
   agentJoined: "{name} entrou na conversa",
   backToAssistant: "Você está conversando com o assistente novamente",
   messagePerson: "Mensagem para {name}…",
+  memoryUpdated: "Memória atualizada",
+  memoryTitle: "O que eu lembro",
+  memoryHint: "Coisas que você me contou e que lembro entre conversas. Exclua o que não quiser que eu lembre.",
+  memoryEmpty: "Ainda não lembro de nada.",
+  forget: "Esquecer",
+  forgetAll: "Esquecer tudo",
+  voiceStart: "Fazer a pergunta por voz",
+  voiceStop: "Parar de ouvir",
+  listening: "Ouvindo…",
 };
 
 const TABLE: Record<string, Strings> = { en, zh, it, es, fr, de, ja, pt };

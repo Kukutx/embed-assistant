@@ -36,6 +36,7 @@ const NAMED: Record<string, string | [string, string]> = {
   "PATCH /evals/:id/cases/:caseId": "eval-cases.update",
   "DELETE /evals/:id/cases/:caseId": "eval-cases.delete",
   "POST /assistants/:id/versions/:version/restore": ["assistants.restore-version", "id"],
+  "DELETE /subjects/:subjectId/memories": ["memories.erase", "subjectId"],
 };
 
 /** Sensitive reads that are audited like changes. */

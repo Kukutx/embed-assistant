@@ -2,6 +2,15 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.10
+
+Personal and hands-free.
+
+- **Long-term memory** for signed-in users, opt-in per assistant (`memory`): the model keeps short facts users share across conversations with built-in `remember` and `forget` tools. Users see and erase them in the widget (*What I remember*, in all eight UI languages) or through `GET`/`DELETE /v1/memories`; admins through `/v1/admin/subjects/{subjectId}/memories`. Never for anonymous visitors; masked by `redactPii`, capped at 50 facts per user, included in subject erasure (`deletedMemories`) and expired by the retention policy. See [docs/identity.md](docs/identity.md#long-term-memory).
+- **Voice input** in the widget (`features.voice`, off by default): a microphone button dictates the question with the browser's speech recognition; nothing is sent until the visitor sends it.
+- Session routes now refuse requests without a session even if the middleware were not mounted (defence in depth).
+- Viewing a subject's data needs `conversations:read`; deleting it still needs `conversations:delete`.
+
 ## 1.0.9
 
 Change with confidence.

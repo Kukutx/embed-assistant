@@ -40,7 +40,7 @@ export function routePermission(method: string, path: string): Permission | null
     if (segs[2] === "reply" || segs[2] === "assign" || segs[2] === "release" || segs[2] === "resolve") return "conversations:reply";
     return "conversations:delete";
   }
-  if (first === "subjects") return "conversations:delete";
+  if (first === "subjects") return read ? "conversations:read" : "conversations:delete";
   if (read) return "config:read";
   if (first === "sources") return "knowledge:write";
   return "config:write";

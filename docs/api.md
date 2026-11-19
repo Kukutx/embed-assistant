@@ -60,7 +60,8 @@ Rules:
 | `/v1/admin/conversations` (+ `?handoff=waiting\|active\|resolved`, `DELETE`, `/export?days=` as NDJSON) | Transcripts and the handoff inbox |
 | `/v1/admin/conversations/{id}/assign`, `/reply`, `/release` | Live takeover by a person |
 | `/v1/admin/conversations/{id}/runs` | How each answer was produced: passages given to the model, tools and their timings, tokens, model deployment, assistant version, guardrail, errors and an event timeline |
-| `/v1/admin/subjects/{subjectId}` (`DELETE`) | Erase everything about one visitor |
+| `/v1/admin/subjects/{subjectId}` (`DELETE`) | Erase everything about one visitor (conversations and memories) |
+| `/v1/admin/subjects/{subjectId}/memories` (`GET`, `DELETE`) | What assistants remember about one signed-in user ([identity.md](identity.md#long-term-memory)) |
 | `/v1/admin/insights?days=`, `/usage`, `/models` | Analytics |
 | `/v1/admin/keys`, `/settings` | API keys, retention and budget |
 | `/v1/admin/me`, `/users`, `/sso`, `/logout` | Caller and permissions, people and roles, single sign-on |

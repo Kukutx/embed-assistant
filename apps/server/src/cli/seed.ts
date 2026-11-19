@@ -68,7 +68,7 @@ try {
         allowedOrigins: [...new Set([origin, "http://localhost:3000", "http://localhost:5173", "http://localhost:8080"])],
         theme: { accentColor: "#2563eb", mode: "auto", position: "bottom-right", radius: 16 },
         defaultLocale: null,
-        features: { feedback: true, sources: true, history: true },
+        features: { feedback: true, sources: true, history: true, voice: false },
         dailyTokenBudget: null,
       },
       encrypt(deriveKey(cfg.SECRET_KEY, "widget-secret-encryption"), secret),

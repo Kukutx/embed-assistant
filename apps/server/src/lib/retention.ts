@@ -19,6 +19,11 @@ export async function purgeExpired(sql: Sql, defaultDays: number): Promise<numbe
     total += rows.length;
     if (rows.length < 500) break;
   }
+  // Memories not used within the retention period go too.
+  await sql`
+    DELETE FROM memories m USING tenants t
+    WHERE t.id = m.tenant_id AND coalesce(t.retention_days, ${defaultDays}) > 0
+      AND greatest(m.updated_at, m.last_used_at) < now() - make_interval(days => coalesce(t.retention_days, ${defaultDays}))`;
   await sql`DELETE FROM jobs WHERE status IN ('succeeded', 'failed') AND updated_at < now() - interval '30 days'`;
   // Live events are only needed while clients are connected; the messages themselves stay.
   await sql`DELETE FROM conversation_events WHERE created_at < now() - interval '7 days'`;

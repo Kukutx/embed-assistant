@@ -47,7 +47,8 @@ export function publicRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCach
         },
         theme: widget.theme,
         defaultLocale: widget.default_locale,
-        features: widget.features,
+        features: { ...widget.features, voice: widget.features.voice ?? false },
+        memory: assistant.memory && s.models.hasLanguageModel(assistant.model_alias),
         handoff: { enabled: assistant.handoff.enabled, url: assistant.handoff.url, label: assistant.handoff.label },
         protocolVersion: PROTOCOL_VERSION,
       };

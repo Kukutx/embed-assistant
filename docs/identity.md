@@ -38,6 +38,30 @@ EmbedAssistant.identify(null);
 
 Switching identity starts a new conversation, so one person never sees another's history.
 
+## Long-term memory
+
+Turn on **memory** on an assistant (`"memory": true`, or *Remember signed-in
+users* in the console) and it keeps short facts that **signed-in users** share
+(the language they prefer, the plan or product they use, their role) across
+conversations. Anonymous visitors never get memory.
+
+- The model saves a fact with a built-in `remember` tool and deletes one with
+  `forget`; the visitor sees "Memory updated" when either runs. It is told not
+  to keep passwords, payment or bank details or health information, and
+  personal data masking (`redactPii`) applies to saved facts.
+- The facts are given to the model as data in a delimited block, never as
+  instructions. At most 50 per user are kept (identical facts are merged; the
+  least recently confirmed go first).
+- Users see what is remembered under *Conversations → What I remember* in the
+  widget and can delete one fact or everything (`GET /v1/memories`,
+  `DELETE /v1/memories/{id}`, `DELETE /v1/memories`).
+- Admins can review and delete them per user
+  (`GET`/`DELETE /v1/admin/subjects/{subjectId}/memories`); erasing a subject
+  deletes them too; facts not used within the tenant's retention period
+  expire.
+- Memory belongs to the tenant and the user (`user:<sub>`), so every assistant
+  of the tenant with memory turned on shares it.
+
 ## Signing examples
 
 ### Node.js (no dependencies)

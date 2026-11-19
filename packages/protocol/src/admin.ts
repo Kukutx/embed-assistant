@@ -95,6 +95,11 @@ export const Assistant = z.object({
   /** Mask e-mail addresses, phone numbers, card numbers and IBANs before storing or sending to a model. */
   redactPii: z.boolean(),
   guardrails: GuardrailConfig,
+  /**
+   * Remember facts that signed-in users share (preferences, the product they use) across
+   * conversations. Users see and erase them in the widget; never applies to anonymous visitors.
+   */
+  memory: z.boolean(),
   version: z.number().int(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
@@ -121,6 +126,7 @@ const AssistantFields = {
   clientTools: z.boolean(),
   redactPii: z.boolean(),
   guardrails: GuardrailConfig,
+  memory: z.boolean(),
 };
 
 export const AssistantInput = z.object({
@@ -142,6 +148,7 @@ export const AssistantInput = z.object({
   clientTools: AssistantFields.clientTools.default(true),
   redactPii: AssistantFields.redactPii.default(false),
   guardrails: GuardrailConfig.default(DEFAULT_GUARDRAILS),
+  memory: AssistantFields.memory.default(false),
   changeNote: z.string().trim().max(300).optional(),
 });
 export type AssistantInput = z.infer<typeof AssistantInput>;
@@ -184,7 +191,13 @@ export const Widget = z.object({
     radius: z.number().int(),
   }),
   defaultLocale: z.string().nullable(),
-  features: z.object({ feedback: z.boolean(), sources: z.boolean(), history: z.boolean() }),
+  features: z.object({
+    feedback: z.boolean(),
+    sources: z.boolean(),
+    history: z.boolean(),
+    /** Microphone button (the browser's speech recognition; some browsers send audio to their vendor's service). */
+    voice: z.boolean(),
+  }),
   /** Daily cap of model tokens for this widget; null = tenant default. */
   dailyTokenBudget: z.number().int().positive().nullable(),
   createdAt: Timestamp,
@@ -205,6 +218,7 @@ const FeaturesInput = z.object({
   feedback: z.boolean().default(true),
   sources: z.boolean().default(true),
   history: z.boolean().default(true),
+  voice: z.boolean().default(false),
 });
 
 const WidgetFields = {
@@ -223,7 +237,7 @@ export const WidgetInput = z.object({
   allowedOrigins: WidgetFields.allowedOrigins.default([]),
   theme: ThemeInput.default({ accentColor: "#2563eb", mode: "auto", position: "bottom-right", radius: 16 }),
   defaultLocale: WidgetFields.defaultLocale.default(null),
-  features: FeaturesInput.default({ feedback: true, sources: true, history: true }),
+  features: FeaturesInput.default({ feedback: true, sources: true, history: true, voice: false }),
   dailyTokenBudget: WidgetFields.dailyTokenBudget.default(null),
 });
 export type WidgetInput = z.infer<typeof WidgetInput>;

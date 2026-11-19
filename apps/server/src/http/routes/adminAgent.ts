@@ -284,12 +284,16 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
 
   route(app, {
       method: "delete", path: "/v1/admin/subjects/{subjectId}", tag: A, summary: "Erase all data of one visitor or user",
-      description: "Right to erasure: deletes every conversation of the subject (e.g. `user:123` or `anon:...`) across all widgets.",
-      auth: "admin", response: { status: 200, schema: z.object({ deletedConversations: z.number().int() }) },
+      description: "Right to erasure: deletes every conversation of the subject (e.g. `user:123` or `anon:...`) across all widgets, and what assistants remember about them.",
+      auth: "admin", response: { status: 200, schema: z.object({ deletedConversations: z.number().int(), deletedMemories: z.number().int() }) },
     },
     async (c) => {
-      const rows = await sql`DELETE FROM conversations WHERE tenant_id = ${tid(c)} AND subject_id = ${param(c, "subjectId")} RETURNING id`;
-      return c.json({ deletedConversations: rows.length });
+      const subjectId = param(c, "subjectId");
+      const [rows, memories] = await sql.begin(async (tx) => [
+        await tx`DELETE FROM conversations WHERE tenant_id = ${tid(c)} AND subject_id = ${subjectId} RETURNING id`,
+        await tx`DELETE FROM memories WHERE tenant_id = ${tid(c)} AND subject_id = ${subjectId} RETURNING id`,
+      ]);
+      return c.json({ deletedConversations: rows.length, deletedMemories: memories.length });
     });
 
   route(app, {

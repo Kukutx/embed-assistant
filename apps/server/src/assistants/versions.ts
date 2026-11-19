@@ -55,7 +55,7 @@ export async function getVersion(sql: Sql, tenantId: string, assistantId: string
 }
 
 function withDefaults(c: Record<string, unknown>): Record<string, unknown> {
-  return { guardrails: {}, ...c };
+  return { guardrails: {}, memory: false, ...c };
 }
 
 /** An assistant row as it was at a saved version (for evaluating that version). */
@@ -80,6 +80,7 @@ export function rowAtVersion(current: AssistantRow, config: AssistantConfig, ver
     client_tools: config.clientTools,
     redact_pii: config.redactPii,
     guardrails: config.guardrails,
+    memory: config.memory,
     version,
   };
 }

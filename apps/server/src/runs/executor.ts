@@ -15,6 +15,7 @@ import { emitWebhook } from "../webhooks/webhooks.js";
 import { auxAlias, contextualQuery, suggestFollowUps } from "./assist.js";
 import { knowledgeSearch } from "./answer.js";
 import { AnswerWatch, checkQuestion, TermMatcher, type GuardrailVerdict } from "./guardrails.js";
+import { listMemories, memorySession, touchMemories } from "../memory/memories.js";
 import { requestHandoff } from "./handoff.js";
 import { buildSystemPrompt, buildUserTurn, extractCitations, toCitation, trimHistory } from "./prompt.js";
 import {
@@ -252,6 +253,15 @@ export class RunExecutor {
         { alias: aux, question: job.userMessage.content, previous: [...history].reverse().find((t) => t.role === "user")?.content, guardrails: g, terms, signal },
       );
 
+      // Long-term memory (signed-in users only), loaded while retrieval runs.
+      const memoryRows =
+        a.memory && job.subject.kind === "user" && this.models.hasLanguageModel(a.model_alias)
+          ? Promise.all([listMemories(sql, job.tenantId, job.subject.id), touchMemories(sql, job.tenantId, job.subject.id)]).then(([rows]) => rows).catch((err: unknown) => {
+              this.log.warn({ err, runId: job.runId }, "could not load memories");
+              return [];
+            })
+          : null;
+
       const query = a.source_ids.length && !termHit
         ? await contextualQuery(this.models, { alias: aux, question: job.userMessage.content, history, useModel: a.query_rewrite, signal })
         : job.userMessage.content;
@@ -293,6 +303,12 @@ export class RunExecutor {
         return `The team has been notified. The user will see this message: "${r.message}"${r.url ? ` and a link to ${r.url}` : ""}. Do not repeat the link.`;
       };
       const tools = blocked ? new Map<string, RunTool>() : await this.buildTools(job, onSearch, onHandoff);
+      let memoryPrompt: string | undefined;
+      if (memoryRows && !blocked) {
+        const mem = memorySession(sql, { tenantId: job.tenantId, subjectId: job.subject.id, conversationId: job.conversationId, redact: a.redact_pii, rows: await memoryRows });
+        memoryPrompt = mem.prompt;
+        for (const t of mem.tools) if (!tools.has(t.def.name)) tools.set(t.def.name, t);
+      }
 
       assistantMsg = await insertMessage(sql, {
         tenantId: job.tenantId,
@@ -311,6 +327,7 @@ export class RunExecutor {
         tools: tools.size
           ? { search: tools.has(SEARCH_TOOL), handoff: tools.has(HANDOFF_TOOL), actions: [...tools.values()].some((t) => t.kind !== "builtin") }
           : undefined,
+        memory: memoryPrompt,
       });
       const transcript: ChatTurn[] = [
         ...history,

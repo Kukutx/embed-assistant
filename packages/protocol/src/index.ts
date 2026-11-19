@@ -81,7 +81,11 @@ export const PublicWidgetConfig = z.object({
     feedback: z.boolean(),
     sources: z.boolean(),
     history: z.boolean(),
+    /** Voice input. Absent on servers older than 1.0.10. */
+    voice: z.boolean().optional(),
   }),
+  /** The assistant remembers signed-in users across conversations (they can review and erase it). */
+  memory: z.boolean().optional(),
   /** Human handoff ("talk to a person"). Absent on servers older than 1.0.1. */
   handoff: z
     .object({
@@ -435,3 +439,18 @@ export const ACCESS_USERS = "users";
 
 export * from "./admin.js";
 export * from "./tools.js";
+
+// ---------------------------------------------------------------------------
+// Long-term memory (signed-in users)
+// ---------------------------------------------------------------------------
+
+/** Something the assistant remembers about a signed-in user, across conversations. */
+export const Memory = z.object({
+  id: Id,
+  content: z.string(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type Memory = z.infer<typeof Memory>;
+export const MemoryList = z.object({ items: z.array(Memory) });
+export type MemoryList = z.infer<typeof MemoryList>;

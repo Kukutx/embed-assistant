@@ -9,6 +9,24 @@ import { plainText, renderMarkdown, safeUrl } from "./markdown.js";
 import { CHAT_ICON, CLOSE_ICON, contrastText, DEFAULT_ACCENT, type AppHandle, type MountContext, type PageContextInput, type UserTokenProvider } from "./shared.js";
 import { STYLES } from "./styles.js";
 
+// ------------------------------------------------------------------ speech
+/** The parts of the Web Speech API's SpeechRecognition used here (not in TypeScript's DOM types everywhere). */
+interface Recognition {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+const speechRecognition = (): (new () => Recognition) | null => {
+  const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+};
+
 // ------------------------------------------------------------------ icons
 const svg = (body: string, size = 18) =>
   `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -31,6 +49,7 @@ const I = {
   tool: svg('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>', 13),
   ok: svg('<path d="M20 6L9 17l-5-5"/>', 13),
   x: svg('<path d="M18 6L6 18M6 6l12 12"/>', 13),
+  mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
   spark: svg('<path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/>', 15),
 };
 
@@ -125,6 +144,8 @@ class App {
   private titleText!: HTMLSpanElement;
   private input!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
+  private micBtn!: HTMLButtonElement;
+  private recognition: Recognition | null = null;
   private footer!: HTMLDivElement;
   private backBtn!: HTMLButtonElement;
   private historyBtn!: HTMLButtonElement;
@@ -159,6 +180,7 @@ class App {
     identify: (p) => this.identify(p),
     destroy: () => {
       this.running?.abort.abort();
+      this.recognition?.abort();
       this.panel?.remove();
     },
     isOpen: () => this.opened,
@@ -215,6 +237,7 @@ class App {
   private close() {
     if (!this.opened || this.ctx.options.inline) return;
     this.opened = false;
+    this.recognition?.abort();
     this.panel.classList.remove("ea-open");
     this.panel.setAttribute("aria-hidden", "true");
     this.syncLauncher();
@@ -252,7 +275,8 @@ class App {
     this.input = h("textarea", { class: "ea-input", rows: "1", maxlength: "4000" });
     this.sendBtn = h("button", { class: "ea-send", type: "button", html: I.send, disabled: true });
     this.disclaimer = h("p", { class: "ea-disclaimer" });
-    this.footer = h("div", { class: "ea-footer" }, h("div", { class: "ea-composer" }, this.input, this.sendBtn), this.disclaimer);
+    this.micBtn = h("button", { class: "ea-icon-btn ea-mic", type: "button", html: I.mic, hidden: true, "aria-pressed": "false" });
+    this.footer = h("div", { class: "ea-footer" }, h("div", { class: "ea-composer" }, this.input, this.micBtn, this.sendBtn), this.disclaimer);
     this.live = h("div", { class: "ea-sr", "aria-live": "polite", "aria-atomic": "true" });
 
     this.panel = h(
@@ -294,6 +318,7 @@ class App {
       this.applyLabels();
     });
     this.sendBtn.addEventListener("click", () => (this.running ? void this.stop() : this.submit()));
+    this.micBtn.addEventListener("click", () => this.toggleVoice());
     this.input.addEventListener("input", () => this.onInput());
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
@@ -343,6 +368,7 @@ class App {
     this.disclaimer.hidden = !cfg?.assistant.disclaimer;
     this.historyBtn.hidden = cfg ? !cfg.features.history : true;
     this.handoffBtn.hidden = !cfg?.handoff?.enabled;
+    this.micBtn.hidden = !(cfg?.features.voice && speechRecognition());
     this.panel.lang = this.lang;
     this.applyTheme();
     this.applyLabels();
@@ -375,7 +401,8 @@ class App {
     label(this.expandBtn, this.expanded ? t.collapse : t.expand);
     this.expandBtn.innerHTML = this.expanded ? I.collapse : I.expand;
     label(this.panel.querySelector<HTMLButtonElement>("[data-role=close]")!, t.closeChat);
-    this.input.placeholder = this.cfg?.assistant.placeholder || t.placeholder;
+    label(this.micBtn, this.recognition ? t.voiceStop : t.voiceStart);
+    this.input.placeholder = this.recognition ? t.listening : this.cfg?.assistant.placeholder || t.placeholder;
     this.input.setAttribute("aria-label", this.input.placeholder);
     this.syncSendButton();
     this.syncLauncher();
@@ -453,10 +480,56 @@ class App {
         list.appendChild(row);
       }
       this.body.replaceChildren(list);
+      if (this.client.subjectKind === "user") void this.memorySection(list);
       list.querySelector<HTMLButtonElement>("button")?.focus();
     } catch (err) {
       this.body.replaceChildren();
       this.showBanner(this.errorText(err));
+    }
+  }
+
+  /** "What I remember": the signed-in user's memories, each erasable. */
+  private async memorySection(after: HTMLElement) {
+    const t = this.t;
+    try {
+      const page = await this.client.listMemories();
+      if (this.view !== "history") return;
+      // Shown while memory is on, and whenever something is stored (so it can always be erased).
+      if (!this.cfg?.memory && !page.items.length) return;
+      const list = h("ul", { class: "ea-memory-list" });
+      const empty = h("div", { class: "ea-empty", text: t.memoryEmpty });
+      const all = h("button", { class: "ea-link-btn", type: "button", text: t.forgetAll });
+      const sync = () => {
+        empty.hidden = list.childElementCount > 0;
+        all.hidden = list.childElementCount === 0;
+      };
+      for (const m of page.items) {
+        const del = h("button", { class: "ea-icon-btn", type: "button", html: I.trash, "aria-label": `${t.forget}: ${m.content}`, title: t.forget });
+        const row = h("li", { class: "ea-memory-item" }, h("span", { text: m.content }), del);
+        del.addEventListener("click", async () => {
+          try {
+            await this.client.deleteMemory(m.id);
+            row.remove();
+            sync();
+          } catch (err) {
+            this.showBanner(this.errorText(err));
+          }
+        });
+        list.appendChild(row);
+      }
+      all.addEventListener("click", async () => {
+        try {
+          await this.client.deleteAllMemories();
+          list.replaceChildren();
+          sync();
+        } catch (err) {
+          this.showBanner(this.errorText(err));
+        }
+      });
+      sync();
+      after.after(h("section", { class: "ea-memory", "aria-label": t.memoryTitle }, h("h3", { text: t.memoryTitle }), h("p", { class: "ea-memory-hint", text: t.memoryHint }), list, empty, all));
+    } catch {
+      // Memory is optional; the conversation list stays usable.
     }
   }
 
@@ -858,7 +931,55 @@ class App {
     this.sendBtn.title = label;
   }
 
+  /**
+   * Dictation with the browser's speech recognition: the words appear in the
+   * input as they are recognized and are sent only when the user sends them.
+   */
+  private toggleVoice() {
+    if (this.recognition) {
+      this.recognition.stop();
+      return;
+    }
+    const Ctor = speechRecognition();
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.lang = this.ctx.options.locale ?? navigator.language;
+    rec.interimResults = true;
+    rec.continuous = false;
+    const before = this.input.value.trim();
+    rec.onresult = (e) => {
+      let heard = "";
+      for (let i = 0; i < e.results.length; i++) heard += e.results[i]![0]!.transcript;
+      this.input.value = before ? `${before} ${heard.trim()}` : heard.trim();
+      this.onInput();
+    };
+    const done = () => {
+      if (this.recognition !== rec) return;
+      this.recognition = null;
+      this.micBtn.classList.remove("ea-mic-on");
+      this.micBtn.setAttribute("aria-pressed", "false");
+      this.applyLabels();
+      if (this.opened || this.ctx.options.inline) this.input.focus();
+    };
+    rec.onend = done;
+    rec.onerror = (e) => {
+      // Microphone permission refused or no speech service: hide the button for this page.
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") this.micBtn.hidden = true;
+      done();
+    };
+    this.recognition = rec;
+    this.micBtn.classList.add("ea-mic-on");
+    this.micBtn.setAttribute("aria-pressed", "true");
+    this.applyLabels();
+    try {
+      rec.start();
+    } catch {
+      done();
+    }
+  }
+
   private submit() {
+    this.recognition?.stop();
     const text = this.input.value.trim();
     if (!text || this.running) return;
     this.input.value = "";
@@ -990,7 +1111,7 @@ class App {
         vm.confirm = null;
         break;
       case "tool.started":
-        vm.tools.push({ callId: e.data.callId, title: e.data.title, state: "running" });
+        vm.tools.push({ callId: e.data.callId, title: e.data.name === "remember" || e.data.name === "forget" ? this.t.memoryUpdated : e.data.title, state: "running" });
         this.ctx.emit("tool", { name: e.data.name, title: e.data.title, state: "started" });
         break;
       case "tool.completed": {

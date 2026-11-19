@@ -49,6 +49,7 @@ export interface AssistantRow {
   redact_pii: boolean;
   /** Stored partially; read through guardrailsOf() to apply defaults. */
   guardrails: Partial<GuardrailConfig> | null;
+  memory: boolean;
   version: number;
   created_at: Date;
   updated_at: Date;
@@ -68,7 +69,7 @@ export interface WidgetRow {
   allowed_origins: string[];
   theme: Widget["theme"];
   default_locale: string | null;
-  features: Widget["features"];
+  features: Omit<Widget["features"], "voice"> & { voice?: boolean };
   daily_token_budget: number | null;
   identity_secret: string;
   created_at: Date;
@@ -161,6 +162,7 @@ export const toAssistant = (r: AssistantRow): Assistant => ({
   clientTools: r.client_tools,
   redactPii: r.redact_pii,
   guardrails: guardrailsOf(r),
+  memory: r.memory,
   version: r.version,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
@@ -173,7 +175,7 @@ export const toWidget = (r: WidgetRow): Widget => ({
   allowedOrigins: r.allowed_origins,
   theme: r.theme,
   defaultLocale: r.default_locale,
-  features: r.features,
+  features: { ...r.features, voice: r.features.voice ?? false },
   dailyTokenBudget: r.daily_token_budget,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
@@ -304,12 +306,12 @@ export async function createAssistant(sql: Tx, tenantId: string, input: Assistan
   const rows = await sql<AssistantRow[]>`
     INSERT INTO assistants (id, tenant_id, name, instructions, model_alias, greeting, suggestions,
                             placeholder, disclaimer, source_ids, grounded_only, action_ids, mcp_server_ids, handoff,
-                            follow_ups, query_rewrite, agentic_search, client_tools, redact_pii, guardrails)
+                            follow_ups, query_rewrite, agentic_search, client_tools, redact_pii, guardrails, memory)
     VALUES (${id}, ${tenantId}, ${input.name}, ${input.instructions}, ${input.modelAlias}, ${input.greeting},
             ${sql.json(input.suggestions)}, ${input.placeholder}, ${input.disclaimer},
             ${sql.array(input.sourceIds)}, ${input.groundedOnly}, ${sql.array(input.actionIds)}, ${sql.array(input.mcpServerIds)},
             ${sql.json(input.handoff as never)}, ${input.followUps}, ${input.queryRewrite}, ${input.agenticSearch},
-            ${input.clientTools}, ${input.redactPii}, ${sql.json(input.guardrails as never)})
+            ${input.clientTools}, ${input.redactPii}, ${sql.json(input.guardrails as never)}, ${input.memory})
     RETURNING *`;
   await recordVersion(sql, rows[0]!, meta);
   return rows[0]!;
@@ -343,6 +345,7 @@ export async function updateAssistant(
     clientTools: patch.clientTools ?? current.client_tools,
     redactPii: patch.redactPii ?? current.redact_pii,
     guardrails: patch.guardrails ?? guardrailsOf(current),
+    memory: patch.memory ?? current.memory,
   };
   const rows = await sql<AssistantRow[]>`
     UPDATE assistants SET
@@ -352,7 +355,7 @@ export async function updateAssistant(
       source_ids = ${sql.array(next.sourceIds)}, grounded_only = ${next.groundedOnly},
       action_ids = ${sql.array(next.actionIds)}, mcp_server_ids = ${sql.array(next.mcpServerIds)}, handoff = ${sql.json(next.handoff as never)},
       follow_ups = ${next.followUps}, query_rewrite = ${next.queryRewrite}, agentic_search = ${next.agenticSearch},
-      client_tools = ${next.clientTools}, redact_pii = ${next.redactPii}, guardrails = ${sql.json(next.guardrails as never)},
+      client_tools = ${next.clientTools}, redact_pii = ${next.redactPii}, guardrails = ${sql.json(next.guardrails as never)}, memory = ${next.memory},
       version = version + 1, updated_at = now()
     WHERE tenant_id = ${tenantId} AND id = ${id}
     RETURNING *`;

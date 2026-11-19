@@ -6,6 +6,7 @@ import type {
   ConversationList,
   CreateRunResponse,
   Message,
+  MemoryList,
   MessageList,
   PageContext,
   PublicWidgetConfig,
@@ -225,6 +226,16 @@ export class Client {
   }
   cancelRun(runId: string): Promise<unknown> {
     return this.request("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`);
+  }
+  /** What the assistant remembers about the signed-in user (empty for anonymous visitors). */
+  listMemories(): Promise<MemoryList> {
+    return this.request("GET", "/v1/memories");
+  }
+  deleteMemory(id: string): Promise<void> {
+    return this.request("DELETE", `/v1/memories/${encodeURIComponent(id)}`);
+  }
+  deleteAllMemories(): Promise<void> {
+    return this.request("DELETE", "/v1/memories");
   }
   feedback(messageId: string, rating: "up" | "down"): Promise<void> {
     return this.request("POST", `/v1/messages/${encodeURIComponent(messageId)}/feedback`, { rating });

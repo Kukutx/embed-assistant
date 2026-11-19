@@ -283,6 +283,7 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
     agenticSearch: h("input", { type: "checkbox", checked: a ? a.agenticSearch : true }),
     clientTools: h("input", { type: "checkbox", checked: a ? a.clientTools : true }),
     redactPii: h("input", { type: "checkbox", checked: a ? a.redactPii : false }),
+    memory: h("input", { type: "checkbox", checked: a ? a.memory : false }),
     handoffEnabled: h("input", { type: "checkbox", checked: a?.handoff?.enabled ?? false }),
     handoffMessage: h("input", { value: a?.handoff?.message ?? "I've passed this conversation to our team. Someone will get back to you as soon as possible." }),
     handoffUrl: h("input", { value: a?.handoff?.url ?? "", placeholder: "https://example.com/contact (optional)" }),
@@ -331,6 +332,7 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
           agenticSearch: f.agenticSearch.checked,
           clientTools: f.clientTools.checked,
           redactPii: f.redactPii.checked,
+          memory: f.memory.checked,
           handoff: {
             enabled: f.handoffEnabled.checked,
             message: f.handoffMessage.value.trim() || "I've passed this conversation to our team.",
@@ -393,6 +395,7 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
       h("label", { class: "check" }, f.agenticSearch, "Let the model run extra knowledge searches"),
       h("label", { class: "check" }, f.clientTools, "Accept tools registered by the host page"),
       h("label", { class: "check" }, f.redactPii, "Mask e-mails, phone numbers, card numbers and IBANs"),
+      h("label", { class: "check" }, f.memory, "Remember signed-in users across conversations (they can see and erase it in the widget)"),
     ),
     field("Change note", f.changeNote, "Kept in the version history. Every save is a new version you can compare, evaluate and restore."),
     msg,
@@ -406,6 +409,7 @@ const CONFIG_LABELS = {
   placeholder: "Input placeholder", disclaimer: "Disclaimer", sourceIds: "Knowledge sources", groundedOnly: "Sources only",
   actionIds: "Actions", mcpServerIds: "MCP servers", handoff: "Human handoff", followUps: "Follow-up suggestions",
   queryRewrite: "Query rewriting", agenticSearch: "Extra searches", clientTools: "Page tools", redactPii: "Mask personal data", guardrails: "Guardrails",
+  memory: "Memory",
 };
 
 /** A config value as readable text: ids become names, objects become indented JSON. */
@@ -589,6 +593,7 @@ function widgetForm(w, assistantsList, done) {
     feedback: h("input", { type: "checkbox", checked: w ? w.features.feedback : true }),
     sources: h("input", { type: "checkbox", checked: w ? w.features.sources : true }),
     history: h("input", { type: "checkbox", checked: w ? w.features.history : true }),
+    voice: h("input", { type: "checkbox", checked: w ? w.features.voice : false }),
   };
   f.assistantId.value = w?.assistantId ?? assistantsList[0]?.id;
   f.mode.value = w?.theme.mode ?? "auto";
@@ -606,7 +611,7 @@ function widgetForm(w, assistantsList, done) {
           theme: { accentColor: f.accent.value, mode: f.mode.value, position: f.position.value, radius: Number(f.radius.value) },
           defaultLocale: f.locale.value.trim() || null,
           dailyTokenBudget: f.budget.value ? Number(f.budget.value) : null,
-          features: { feedback: f.feedback.checked, sources: f.sources.checked, history: f.history.checked },
+          features: { feedback: f.feedback.checked, sources: f.sources.checked, history: f.history.checked, voice: f.voice.checked },
         };
         try {
           const r = await api(w ? "PATCH" : "POST", w ? `/widgets/${w.id}` : "/widgets", body);
@@ -623,7 +628,8 @@ function widgetForm(w, assistantsList, done) {
     h("div", { class: "two" }, field("Accent color", f.accent), field("Theme", f.mode)),
     h("div", { class: "two" }, field("Position", f.position), field("Corner radius", f.radius)),
     h("div", { class: "two" }, field("Default UI language", f.locale), field("Daily token budget", f.budget)),
-    h("div", { class: "row" }, h("label", { class: "check" }, f.feedback, "Feedback buttons"), h("label", { class: "check" }, f.sources, "Show sources"), h("label", { class: "check" }, f.history, "Conversation history")),
+    h("div", { class: "row" }, h("label", { class: "check" }, f.feedback, "Feedback buttons"), h("label", { class: "check" }, f.sources, "Show sources"), h("label", { class: "check" }, f.history, "Conversation history"), h("label", { class: "check" }, f.voice, "Voice input")),
+    h("p", { class: "muted small", style: "margin-top:4px", text: "Voice input uses the browser's speech recognition; Chrome and Edge send the audio to their vendor's speech service, Safari may process it on the device." }),
     msg,
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: w ? "Save" : "Create" })),
   );
