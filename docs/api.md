@@ -36,7 +36,7 @@ Reconnect with `Last-Event-ID: <seq>` (or `?after=<seq>`) to continue exactly wh
 
 When a person on the team takes over (see [tools.md](tools.md#live-takeover-from-the-console-or-your-helpdesk)), the conversation's `mode` becomes `human`: follow `GET /v1/conversations/{id}/events` (Server-Sent Events `conversation.updated` and `message.created`, resumable with `Last-Event-ID`) and send with `POST /v1/conversations/{id}/messages`.
 
-Other endpoints: `GET /v1/conversations`, `GET/DELETE /v1/conversations/{id}`, `GET /v1/conversations/{id}/messages`, `GET /v1/runs/{id}`, `POST /v1/runs/{id}/cancel`, `POST /v1/messages/{id}/feedback`, `POST /v1/runs/{id}/tool-results`, `POST /v1/conversations/{id}/handoff`. `DELETE /v1/conversations/{id}` deletes permanently. Tools and handoff are described in [tools.md](tools.md).
+Other endpoints: `GET /v1/conversations`, `GET/DELETE /v1/conversations/{id}`, `GET /v1/conversations/{id}/messages`, `GET /v1/runs/{id}`, `POST /v1/runs/{id}/cancel`, `POST /v1/messages/{id}/feedback`, `POST /v1/runs/{id}/tool-results`, `POST /v1/conversations/{id}/handoff`, and for signed-in users `GET /v1/memories`, `DELETE /v1/memories/{id}` and `DELETE /v1/memories` (what the assistant remembers, see [identity.md](identity.md#long-term-memory)). `DELETE /v1/conversations/{id}` deletes permanently. Tools and handoff are described in [tools.md](tools.md).
 
 Rules:
 
