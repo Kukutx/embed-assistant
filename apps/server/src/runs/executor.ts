@@ -303,10 +303,10 @@ export class RunExecutor {
         return `The team has been notified. The user will see this message: "${r.message}"${r.url ? ` and a link to ${r.url}` : ""}. Do not repeat the link.`;
       };
       const tools = blocked ? new Map<string, RunTool>() : await this.buildTools(job, onSearch, onHandoff);
-      let memoryPrompt: string | undefined;
+      let memory: string[] | undefined;
       if (memoryRows && !blocked) {
         const mem = memorySession(sql, { tenantId: job.tenantId, subjectId: job.subject.id, conversationId: job.conversationId, redact: a.redact_pii, rows: await memoryRows });
-        memoryPrompt = mem.prompt;
+        memory = mem.facts;
         for (const t of mem.tools) if (!tools.has(t.def.name)) tools.set(t.def.name, t);
       }
 
@@ -327,11 +327,11 @@ export class RunExecutor {
         tools: tools.size
           ? { search: tools.has(SEARCH_TOOL), handoff: tools.has(HANDOFF_TOOL), actions: [...tools.values()].some((t) => t.kind !== "builtin") }
           : undefined,
-        memory: memoryPrompt,
+        memory: memory !== undefined,
       });
       const transcript: ChatTurn[] = [
         ...history,
-        { role: "user", content: buildUserTurn({ question: job.userMessage.content, sources, context: job.context }) },
+        { role: "user", content: buildUserTurn({ question: job.userMessage.content, sources, context: job.context, memory }) },
       ];
 
       let pending = "";
