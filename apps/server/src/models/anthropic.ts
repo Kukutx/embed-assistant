@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ChatChunk, ChatModel, ChatRequest } from "./types.js";
+import type { ChatChunk, ChatModel, ChatRequest, ChatTurn } from "./types.js";
 import { ModelError, isRetryableStatus } from "./types.js";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -49,7 +49,10 @@ export class AnthropicChat implements ChatModel {
           max_tokens: req.maxOutputTokens,
           // Stable instructions first and marked cacheable; sources travel in the user turn.
           system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
-          messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+          messages: toAnthropicMessages(req.messages),
+          ...(req.tools?.length
+            ? { tools: req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters as never })) }
+            : {}),
           output_config: { effort: this.o.effort ?? "low" },
           ...(useFallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
         },
@@ -61,6 +64,7 @@ export class AnthropicChat implements ChatModel {
 
     let inputTokens = 0;
     let outputTokens = 0;
+    let stopReason: string | null = null;
     try {
       for await (const event of stream) {
         switch (event.type) {
@@ -75,8 +79,20 @@ export class AnthropicChat implements ChatModel {
             break;
           case "message_delta":
             outputTokens = event.usage.output_tokens ?? outputTokens;
+            stopReason = event.delta.stop_reason ?? stopReason;
             if (event.delta.stop_reason === "refusal") yield { type: "refusal" };
             break;
+        }
+      }
+      if (stopReason === "tool_use") {
+        // Tool calls come from the assembled message, so inputs are complete JSON.
+        const final = await stream.finalMessage();
+        yield { type: "raw", provider: this.provider, content: final.content };
+        for (const block of final.content) {
+          if (block.type === "tool_use") {
+            const input = block.input && typeof block.input === "object" ? (block.input as Record<string, unknown>) : {};
+            yield { type: "tool_call", call: { id: block.id, name: block.name, input } };
+          }
         }
       }
     } catch (err) {
@@ -85,6 +101,32 @@ export class AnthropicChat implements ChatModel {
     }
     yield { type: "usage", inputTokens, outputTokens };
   }
+}
+
+/** Provider-neutral transcript -> Messages API. Tool results travel in user turns. */
+export function toAnthropicMessages(turns: ChatTurn[]): { role: "user" | "assistant"; content: never }[] {
+  const out: { role: "user" | "assistant"; content: unknown }[] = [];
+  for (const t of turns) {
+    if (t.role === "user") out.push({ role: "user", content: t.content });
+    else if (t.role === "assistant") {
+      if (t.raw?.provider === "anthropic") out.push({ role: "assistant", content: t.raw.content });
+      else if (t.toolCalls?.length) {
+        out.push({
+          role: "assistant",
+          content: [
+            ...(t.content ? [{ type: "text", text: t.content }] : []),
+            ...t.toolCalls.map((c) => ({ type: "tool_use", id: c.id, name: c.name, input: c.input })),
+          ],
+        });
+      } else out.push({ role: "assistant", content: t.content });
+    } else {
+      out.push({
+        role: "user",
+        content: t.results.map((r) => ({ type: "tool_result", tool_use_id: r.callId, content: r.content || "(empty)", ...(r.isError ? { is_error: true } : {}) })),
+      });
+    }
+  }
+  return out as { role: "user" | "assistant"; content: never }[];
 }
 
 function toModelError(err: unknown): ModelError {

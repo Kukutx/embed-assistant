@@ -1,7 +1,7 @@
 import type { Logger } from "pino";
 import type { Config } from "../config.js";
 import type { Sql } from "../db/pool.js";
-import type { WidgetRow } from "../db/store.js";
+import type { KeyRow, WidgetRow } from "../db/store.js";
 import type { SessionClaims, SessionSigner } from "../auth/session.js";
 import type { IngestDeps } from "../knowledge/ingest.js";
 import type { RateLimiter } from "../lib/rateLimit.js";
@@ -32,5 +32,6 @@ export interface AppEnv {
     session: SessionClaims;
     widget: WidgetRow;
     tenantId: string;
+    apiKey: KeyRow;
   };
 }

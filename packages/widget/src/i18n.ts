@@ -30,6 +30,15 @@ export interface Strings {
   collapse: string;
   answerReady: string;
   poweredBy: string;
+  talkToHuman: string;
+  approvalNeeded: string;
+  allow: string;
+  deny: string;
+  declined: string;
+  approved: string;
+  related: string;
+  working: string;
+  handoffFailed: string;
 }
 
 const en: Strings = {
@@ -63,6 +72,15 @@ const en: Strings = {
   collapse: "Collapse",
   answerReady: "Answer ready",
   poweredBy: "AI assistant",
+  talkToHuman: "Talk to a person",
+  approvalNeeded: "Allow this action?",
+  allow: "Allow",
+  deny: "Don't allow",
+  declined: "Not allowed",
+  approved: "Allowed",
+  related: "Related questions",
+  working: "Working…",
+  handoffFailed: "Couldn't reach the team. Please try again.",
 };
 
 const zh: Strings = {
@@ -96,6 +114,15 @@ const zh: Strings = {
   collapse: "收起",
   answerReady: "回答已生成",
   poweredBy: "AI 助手",
+  talkToHuman: "联系人工客服",
+  approvalNeeded: "允许执行此操作吗？",
+  allow: "允许",
+  deny: "不允许",
+  declined: "已拒绝",
+  approved: "已允许",
+  related: "相关问题",
+  working: "处理中…",
+  handoffFailed: "无法联系团队，请重试。",
 };
 
 const it: Strings = {
@@ -129,6 +156,15 @@ const it: Strings = {
   collapse: "Riduci",
   answerReady: "Risposta pronta",
   poweredBy: "Assistente IA",
+  talkToHuman: "Parla con una persona",
+  approvalNeeded: "Consentire questa azione?",
+  allow: "Consenti",
+  deny: "Non consentire",
+  declined: "Non consentita",
+  approved: "Consentita",
+  related: "Domande correlate",
+  working: "In corso…",
+  handoffFailed: "Impossibile contattare il team. Riprova.",
 };
 
 const es: Strings = {
@@ -162,6 +198,15 @@ const es: Strings = {
   collapse: "Reducir",
   answerReady: "Respuesta lista",
   poweredBy: "Asistente de IA",
+  talkToHuman: "Hablar con una persona",
+  approvalNeeded: "¿Permitir esta acción?",
+  allow: "Permitir",
+  deny: "No permitir",
+  declined: "No permitida",
+  approved: "Permitida",
+  related: "Preguntas relacionadas",
+  working: "Procesando…",
+  handoffFailed: "No se pudo contactar al equipo. Inténtalo de nuevo.",
 };
 
 const fr: Strings = {
@@ -195,6 +240,15 @@ const fr: Strings = {
   collapse: "Réduire",
   answerReady: "Réponse prête",
   poweredBy: "Assistant IA",
+  talkToHuman: "Parler à une personne",
+  approvalNeeded: "Autoriser cette action ?",
+  allow: "Autoriser",
+  deny: "Ne pas autoriser",
+  declined: "Refusée",
+  approved: "Autorisée",
+  related: "Questions associées",
+  working: "En cours…",
+  handoffFailed: "Impossible de joindre l'équipe. Réessayez.",
 };
 
 const de: Strings = {
@@ -228,6 +282,15 @@ const de: Strings = {
   collapse: "Verkleinern",
   answerReady: "Antwort bereit",
   poweredBy: "KI-Assistent",
+  talkToHuman: "Mit einer Person sprechen",
+  approvalNeeded: "Diese Aktion erlauben?",
+  allow: "Erlauben",
+  deny: "Nicht erlauben",
+  declined: "Abgelehnt",
+  approved: "Erlaubt",
+  related: "Ähnliche Fragen",
+  working: "Wird ausgeführt…",
+  handoffFailed: "Das Team ist nicht erreichbar. Bitte erneut versuchen.",
 };
 
 const ja: Strings = {
@@ -261,6 +324,15 @@ const ja: Strings = {
   collapse: "縮小",
   answerReady: "回答の準備ができました",
   poweredBy: "AIアシスタント",
+  talkToHuman: "担当者と話す",
+  approvalNeeded: "この操作を許可しますか？",
+  allow: "許可する",
+  deny: "許可しない",
+  declined: "拒否しました",
+  approved: "許可しました",
+  related: "関連する質問",
+  working: "処理中…",
+  handoffFailed: "チームに連絡できませんでした。もう一度お試しください。",
 };
 
 const pt: Strings = {
@@ -294,6 +366,15 @@ const pt: Strings = {
   collapse: "Recolher",
   answerReady: "Resposta pronta",
   poweredBy: "Assistente de IA",
+  talkToHuman: "Falar com uma pessoa",
+  approvalNeeded: "Permitir esta ação?",
+  allow: "Permitir",
+  deny: "Não permitir",
+  declined: "Não permitida",
+  approved: "Permitida",
+  related: "Perguntas relacionadas",
+  working: "Processando…",
+  handoffFailed: "Não foi possível contatar a equipe. Tente novamente.",
 };
 
 const TABLE: Record<string, Strings> = { en, zh, it, es, fr, de, ja, pt };

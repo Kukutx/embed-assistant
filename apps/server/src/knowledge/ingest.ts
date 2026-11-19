@@ -1,3 +1,4 @@
+import { emitWebhook } from "../webhooks/webhooks.js";
 import type { Logger } from "pino";
 import type { Sql } from "../db/pool.js";
 import { getSource, setSourceStatus, type SourceRow } from "../db/store.js";
@@ -140,8 +141,10 @@ export async function ingestSource(deps: IngestDeps, tenantId: string, sourceId:
       await deps.sql`DELETE FROM documents WHERE source_id = ${sourceId} AND NOT (external_id = ANY(${deps.sql.array([...seen])}))`;
     }
     await setSourceStatus(deps.sql, tenantId, sourceId, "succeeded", failures ? `${failures} page(s) failed` : null);
+    await emitWebhook(deps.sql, tenantId, "source.synced", { sourceId, status: "succeeded", pages: seen.size, failures }).catch(() => {});
   } catch (err) {
     await setSourceStatus(deps.sql, tenantId, sourceId, "failed", (err as Error).message.slice(0, 500));
+    await emitWebhook(deps.sql, tenantId, "source.synced", { sourceId, status: "failed", error: (err as Error).message.slice(0, 500) }).catch(() => {});
     throw err;
   }
 }

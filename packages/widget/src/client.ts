@@ -1,5 +1,7 @@
 import type {
+  ClientToolDef,
   Conversation,
+  HandoffResult,
   ConversationList,
   CreateRunResponse,
   MessageList,
@@ -187,12 +189,28 @@ export class Client {
       `/v1/conversations/${encodeURIComponent(conversationId)}/messages?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
     );
   }
-  createRun(conversationId: string, content: string, context: PageContext | undefined, idempotencyKey: string): Promise<CreateRunResponse> {
+  createRun(
+    conversationId: string,
+    content: string,
+    context: PageContext | undefined,
+    idempotencyKey: string,
+    clientTools?: ClientToolDef[],
+  ): Promise<CreateRunResponse> {
     return this.request("POST", `/v1/conversations/${encodeURIComponent(conversationId)}/runs`, {
       content,
       ...(context ? { context } : {}),
+      ...(clientTools?.length ? { clientTools } : {}),
       idempotencyKey,
     });
+  }
+  toolResult(runId: string, body: { callId: string; approved?: boolean; output?: unknown; isError?: boolean }): Promise<void> {
+    return this.request("POST", `/v1/runs/${encodeURIComponent(runId)}/tool-results`, body);
+  }
+  handoff(conversationId: string, reason?: string): Promise<HandoffResult> {
+    return this.request("POST", `/v1/conversations/${encodeURIComponent(conversationId)}/handoff`, reason ? { reason } : {});
+  }
+  getConversation(id: string): Promise<Conversation> {
+    return this.request("GET", `/v1/conversations/${encodeURIComponent(id)}`);
   }
   cancelRun(runId: string): Promise<unknown> {
     return this.request("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`);

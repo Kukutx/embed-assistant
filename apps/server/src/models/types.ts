@@ -1,7 +1,38 @@
-export interface ChatTurn {
+/** Plain text turn (stored conversation history). */
+export interface TextTurn {
   role: "user" | "assistant";
   content: string;
 }
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface ToolResult {
+  callId: string;
+  name: string;
+  content: string;
+  isError?: boolean;
+}
+
+/** A tool the model may call (JSON Schema input). */
+export interface ToolDef {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+/**
+ * One turn of the provider-neutral transcript. Assistant turns produced in this
+ * run may carry the provider's raw content (`raw`), which the same provider
+ * replays verbatim (e.g. reasoning blocks that must accompany tool calls).
+ */
+export type ChatTurn =
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; toolCalls?: ToolCall[]; raw?: { provider: string; content: unknown } }
+  | { role: "tool"; results: ToolResult[] };
 
 /** A retrieved passage, numbered as the model should cite it ([1], [2], ...). */
 export interface SourcePassage {
@@ -23,12 +54,17 @@ export interface ChatRequest {
   sources: SourcePassage[];
   maxOutputTokens: number;
   signal: AbortSignal;
+  /** Tools the model may call. Providers without tool support ignore them. */
+  tools?: ToolDef[];
 }
 
 export type ChatChunk =
   | { type: "text"; text: string }
   | { type: "usage"; inputTokens: number; outputTokens: number }
-  | { type: "refusal" };
+  | { type: "refusal" }
+  | { type: "tool_call"; call: ToolCall }
+  /** Provider-specific assistant content to replay on the next step of a tool loop. */
+  | { type: "raw"; provider: string; content: unknown };
 
 export interface ChatModel {
   /** Deployment id, unique in the registry. */

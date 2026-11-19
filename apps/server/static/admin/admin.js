@@ -110,10 +110,14 @@ function loginView() {
 // ------------------------------------------------------------------ views
 const VIEWS = {
   overview: { title: "Overview", render: overview },
+  insights: { title: "Insights", render: insights },
   assistants: { title: "Assistants", render: assistants },
   widgets: { title: "Widgets", render: widgets },
   knowledge: { title: "Knowledge", render: knowledge },
+  actions: { title: "Actions", render: actions },
   conversations: { title: "Conversations", render: conversations },
+  webhooks: { title: "Webhooks", render: webhooks },
+  settings: { title: "Settings", render: settings },
 };
 let pollTimer = null;
 
@@ -160,8 +164,8 @@ async function overview(main) {
 }
 
 async function assistants(main) {
-  const [list, sources, models] = await Promise.all([api("GET", "/assistants"), api("GET", "/sources"), api("GET", "/models")]);
-  const edit = (a) => assistantForm(a, sources, models, () => route());
+  const [list, sources, models, actionList] = await Promise.all([api("GET", "/assistants"), api("GET", "/sources"), api("GET", "/models"), api("GET", "/actions")]);
+  const edit = (a) => assistantForm(a, sources, models, actionList, () => route());
   main.append(
     h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn primary", onclick: () => edit(null), text: "New assistant" })),
     h(
@@ -207,7 +211,7 @@ async function assistants(main) {
   );
 }
 
-function assistantForm(a, sources, models, done) {
+function assistantForm(a, sources, models, actionList, done) {
   const f = {
     name: h("input", { value: a?.name ?? "", required: true, maxlength: 100 }),
     instructions: h("textarea", { value: a?.instructions ?? "", rows: 6, placeholder: "Tone, scope, what to do when unsure…" }),
@@ -217,7 +221,20 @@ function assistantForm(a, sources, models, done) {
     placeholder: h("input", { value: a?.placeholder ?? "" }),
     disclaimer: h("input", { value: a?.disclaimer ?? "" }),
     groundedOnly: h("input", { type: "checkbox", checked: a ? a.groundedOnly : true }),
+    followUps: h("input", { type: "checkbox", checked: a ? a.followUps : true }),
+    queryRewrite: h("input", { type: "checkbox", checked: a ? a.queryRewrite : true }),
+    agenticSearch: h("input", { type: "checkbox", checked: a ? a.agenticSearch : true }),
+    clientTools: h("input", { type: "checkbox", checked: a ? a.clientTools : true }),
+    redactPii: h("input", { type: "checkbox", checked: a ? a.redactPii : false }),
+    handoffEnabled: h("input", { type: "checkbox", checked: a?.handoff?.enabled ?? false }),
+    handoffMessage: h("input", { value: a?.handoff?.message ?? "I've passed this conversation to our team. Someone will get back to you as soon as possible." }),
+    handoffUrl: h("input", { value: a?.handoff?.url ?? "", placeholder: "https://example.com/contact (optional)" }),
+    handoffLabel: h("input", { value: a?.handoff?.label ?? "", placeholder: "Talk to a person" }),
   };
+  const actionChecks = actionList.map((x) => {
+    const c = h("input", { type: "checkbox", value: x.id, checked: a?.actionIds?.includes(x.id) });
+    return h("label", { class: "check" }, c, `${x.title} `, h("code", { text: x.name }), x.confirm ? h("span", { class: "badge warn", text: "asks first" }) : null, x.enabled ? null : h("span", { class: "badge", text: "disabled" }));
+  });
   f.modelAlias.value = a?.modelAlias ?? "standard";
   const sourceChecks = sources.map((s) => {
     const c = h("input", { type: "checkbox", value: s.id, checked: a?.sourceIds.includes(s.id) });
@@ -239,6 +256,18 @@ function assistantForm(a, sources, models, done) {
           disclaimer: f.disclaimer.value.trim() || null,
           sourceIds: sourceChecks.map((l) => l.querySelector("input")).filter((c) => c.checked).map((c) => c.value),
           groundedOnly: f.groundedOnly.checked,
+          actionIds: actionChecks.map((l) => l.querySelector("input")).filter((c) => c.checked).map((c) => c.value),
+          followUps: f.followUps.checked,
+          queryRewrite: f.queryRewrite.checked,
+          agenticSearch: f.agenticSearch.checked,
+          clientTools: f.clientTools.checked,
+          redactPii: f.redactPii.checked,
+          handoff: {
+            enabled: f.handoffEnabled.checked,
+            message: f.handoffMessage.value.trim() || "I've passed this conversation to our team.",
+            url: f.handoffUrl.value.trim() || null,
+            label: f.handoffLabel.value.trim() || null,
+          },
         };
         try {
           await api(a ? "PATCH" : "POST", a ? `/assistants/${a.id}` : "/assistants", body);
@@ -254,8 +283,27 @@ function assistantForm(a, sources, models, done) {
     h("div", { class: "two" }, field("Model alias", f.modelAlias), field("Greeting", f.greeting)),
     field("Suggested questions", f.suggestions, "One per line, up to 6."),
     h("div", { class: "two" }, field("Input placeholder", f.placeholder), field("Disclaimer", f.disclaimer)),
-    h("fieldset", { style: "border:1px solid var(--border);border-radius:8px;padding:10px" }, h("legend", { text: "Knowledge sources" }), sourceChecks.length ? sourceChecks : h("span", { class: "muted", text: "No sources yet." })),
+    h("fieldset", { class: "box" }, h("legend", { text: "Knowledge sources" }), sourceChecks.length ? sourceChecks : h("span", { class: "muted", text: "No sources yet." })),
     h("label", { class: "check" }, f.groundedOnly, "Answer only from knowledge sources (recommended for support)"),
+    h("fieldset", { class: "box" }, h("legend", { text: "Actions (tools)" }), actionChecks.length ? actionChecks : h("span", { class: "muted", text: "No actions yet. Create them under Actions." })),
+    h(
+      "fieldset",
+      { class: "box" },
+      h("legend", { text: "Human handoff" }),
+      h("label", { class: "check" }, f.handoffEnabled, "Offer “talk to a person” (delivered through the handoff.requested webhook)"),
+      field("Message shown to the visitor", f.handoffMessage),
+      h("div", { class: "two" }, field("Contact link", f.handoffUrl), field("Button label", f.handoffLabel)),
+    ),
+    h(
+      "fieldset",
+      { class: "box" },
+      h("legend", { text: "Behaviour" }),
+      h("label", { class: "check" }, f.followUps, "Suggest follow-up questions after answers"),
+      h("label", { class: "check" }, f.queryRewrite, "Understand follow-up questions in context (query rewriting)"),
+      h("label", { class: "check" }, f.agenticSearch, "Let the model run extra knowledge searches"),
+      h("label", { class: "check" }, f.clientTools, "Accept tools registered by the host page"),
+      h("label", { class: "check" }, f.redactPii, "Mask e-mails, phone numbers, card numbers and IBANs"),
+    ),
     msg,
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: a ? "Save" : "Create" })),
   );
@@ -573,10 +621,23 @@ async function conversations(main) {
         h(
           "tr",
           {},
-          h("td", {}, h("button", { class: "btn", onclick: () => transcript(c), text: c.title || "(untitled)" })),
+          h("td", {}, h("button", { class: "btn", onclick: () => transcript(c), text: c.title || "(untitled)" }), c.handoffRequestedAt ? h("span", { class: "badge warn", text: " handoff" }) : null),
           h("td", {}, h("span", { class: "badge", text: c.subjectKind }), " ", h("span", { class: "small mono muted", text: c.subjectId.slice(0, 40) })),
           h("td", { text: String(c.messageCount) }),
           h("td", { class: "small", text: fmtDate(c.updatedAt) }),
+          h(
+            "td",
+            {},
+            h("button", {
+              class: "btn danger",
+              text: "Delete",
+              onclick: async (e) => {
+                if (!confirm("Delete this conversation permanently?")) return;
+                await api("DELETE", `/conversations/${c.id}`);
+                e.target.closest("tr").remove();
+              },
+            }),
+          ),
         ),
       );
     }
@@ -585,7 +646,8 @@ async function conversations(main) {
   };
   more.onclick = load;
   main.append(
-    h("div", { class: "card" }, h("table", {}, h("thead", {}, h("tr", {}, ["Conversation", "Visitor", "Messages", "Last activity"].map((t) => h("th", { text: t })))), table), more),
+    h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn", text: "Export last 30 days (NDJSON)", onclick: () => download("/conversations/export?days=30", "conversations.ndjson") })),
+    h("div", { class: "card" }, h("table", {}, h("thead", {}, h("tr", {}, ["Conversation", "Visitor", "Messages", "Last activity", ""].map((t) => h("th", { text: t })))), table), more),
   );
   await load();
   if (!table.children.length) table.append(h("tr", {}, h("td", { colspan: 4, class: "muted", text: "No conversations yet." })));
@@ -608,10 +670,411 @@ async function transcript(c) {
   );
 }
 
+async function download(path, filename) {
+  const res = await fetch(`/v1/admin${path}`, { headers: { authorization: `Bearer ${getKey()}` } });
+  if (!res.ok) return alert(`Export failed (HTTP ${res.status})`);
+  const url = URL.createObjectURL(await res.blob());
+  const a = h("a", { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// ------------------------------------------------------------------ insights
+async function insights(main) {
+  const days = Number(new URLSearchParams(location.hash.split("?")[1] ?? "").get("days") ?? 30);
+  const ins = await api("GET", `/insights?days=${days}`);
+  const stat = (k, v) => h("div", { class: "card stat" }, h("div", { class: "v", text: String(v) }), h("div", { class: "k", text: k }));
+  const pct = (n, d) => (d ? `${Math.round((100 * n) / d)}%` : "—");
+  const list = (title, hint, rows, empty) =>
+    h(
+      "div",
+      { class: "card" },
+      h("h2", { text: title }),
+      hint ? h("p", { class: "muted small", text: hint }) : null,
+      rows.length ? h("table", {}, h("tbody", {}, rows)) : h("p", { class: "muted", text: empty }),
+    );
+  main.append(
+    h("div", { class: "row", style: "margin-bottom:12px" }, ...[7, 30, 90].map((d) => h("button", { class: `btn${d === days ? " primary" : ""}`, text: `${d} days`, onclick: () => (location.hash = `#/insights?days=${d}`) }))),
+    h(
+      "div",
+      { class: "grid", style: "margin-bottom:16px" },
+      stat("Conversations", ins.conversations),
+      stat("Questions", ins.questions),
+      stat("Answered from knowledge", pct(ins.questions - ins.unanswered, ins.questions)),
+      stat("Handoffs to people", `${ins.handoffs} (${pct(ins.handoffs, ins.conversations)})`),
+      stat("Satisfaction", ins.satisfaction === null ? "—" : `${Math.round(ins.satisfaction * 100)}%`),
+      stat("Ratings", `${ins.feedbackUp} 👍 · ${ins.feedbackDown} 👎`),
+    ),
+    list(
+      "Knowledge gaps",
+      "Questions for which no relevant knowledge was found. Writing or fixing these docs improves answers the most.",
+      ins.knowledgeGaps.map((q) => h("tr", {}, h("td", { text: q.question }), h("td", { class: "small muted", text: `${q.count}×` }), h("td", { class: "small muted", text: fmtDate(q.lastAskedAt) }))),
+      "No gaps in this period.",
+    ),
+    list(
+      "Answers rated not helpful",
+      null,
+      ins.downvoted.map((d) =>
+        h(
+          "tr",
+          {},
+          h("td", {}, h("strong", { text: d.question || "(question not found)" }), h("div", { class: "small muted clamp", text: d.answer }), d.comment ? h("div", { class: "small", text: `“${d.comment}”` }) : null),
+          h("td", { class: "small muted", text: fmtDate(d.createdAt) }),
+        ),
+      ),
+      "No negative ratings in this period.",
+    ),
+    list(
+      "Top questions",
+      null,
+      ins.topQuestions.map((q) => h("tr", {}, h("td", { text: q.question }), h("td", { class: "small muted", text: `${q.count}×` }))),
+      "No questions yet.",
+    ),
+    list(
+      "Tools",
+      null,
+      ins.tools.map((t) => h("tr", {}, h("td", {}, h("code", { text: t.name })), h("td", { class: "small", text: `${t.calls} calls` }), h("td", { class: `small${t.errors ? " bad" : " muted"}`, text: `${t.errors} errors` }))),
+      "No tool calls in this period.",
+    ),
+  );
+}
+
+// ------------------------------------------------------------------ actions
+async function actions(main) {
+  const list = await api("GET", "/actions");
+  main.append(
+    h("p", { class: "muted", text: "HTTP endpoints the assistant can call as tools: look up an order, create a ticket, book a demo. Requests are signed (EA-Signature) with the widget identity secret." }),
+    h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn primary", onclick: () => actionForm(null), text: "New action" })),
+    h(
+      "div",
+      { class: "card" },
+      list.length
+        ? h(
+            "table",
+            {},
+            h("thead", {}, h("tr", {}, ["Action", "Request", "Rules", ""].map((t) => h("th", { text: t })))),
+            h(
+              "tbody",
+              {},
+              list.map((x) =>
+                h(
+                  "tr",
+                  {},
+                  h("td", {}, h("strong", { text: x.title }), h("div", {}, h("code", { text: x.name })), h("div", { class: "small muted", text: x.description })),
+                  h("td", { class: "small mono", text: `${x.method} ${x.url}` }),
+                  h("td", {}, x.enabled ? null : h("span", { class: "badge", text: "disabled" }), x.confirm ? h("span", { class: "badge warn", text: "asks first" }) : null, x.requireUser ? h("span", { class: "badge", text: "signed-in only" }) : null),
+                  h(
+                    "td",
+                    { class: "row" },
+                    h("button", { class: "btn", onclick: () => actionForm(x), text: "Edit" }),
+                    h("button", { class: "btn", onclick: () => actionTest(x), text: "Test" }),
+                    h("button", {
+                      class: "btn danger",
+                      text: "Delete",
+                      onclick: async () => {
+                        if (!confirm(`Delete action "${x.title}"?`)) return;
+                        await api("DELETE", `/actions/${x.id}`);
+                        route();
+                      },
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          )
+        : h("p", { class: "muted", text: "No actions yet." }),
+    ),
+  );
+}
+
+function actionForm(x) {
+  const f = {
+    name: h("input", { value: x?.name ?? "", required: true, pattern: "[a-zA-Z][a-zA-Z0-9_-]{0,63}", placeholder: "get_order_status" }),
+    title: h("input", { value: x?.title ?? "", required: true, placeholder: "Checking your order" }),
+    description: h("textarea", { value: x?.description ?? "", rows: 3, required: true, placeholder: "When the model should use it, and what it returns." }),
+    method: h("select", {}, ["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => h("option", { value: m, text: m }))),
+    url: h("input", { value: x?.url ?? "", required: true, placeholder: "https://api.example.com/orders/{orderId}" }),
+    parameters: h("textarea", { class: "mono", rows: 7, value: JSON.stringify(x?.parameters ?? { type: "object", properties: { orderId: { type: "string", description: "Order number" } }, required: ["orderId"] }, null, 2) }),
+    headers: h("textarea", { class: "mono", rows: 3, value: "", placeholder: x?.headerNames?.length ? `Configured: ${x.headerNames.join(", ")}. Leave empty to keep.` : '{ "Authorization": "Bearer …" }' }),
+    timeoutMs: h("input", { type: "number", min: 1000, max: 30000, value: x?.timeoutMs ?? 10000 }),
+    confirm: h("input", { type: "checkbox", checked: x?.confirm ?? false }),
+    requireUser: h("input", { type: "checkbox", checked: x?.requireUser ?? false }),
+    enabled: h("input", { type: "checkbox", checked: x?.enabled ?? true }),
+  };
+  f.method.value = x?.method ?? "POST";
+  const msg = h("div");
+  const form = h(
+    "form",
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        try {
+          const body = {
+            name: f.name.value.trim(),
+            title: f.title.value.trim(),
+            description: f.description.value.trim(),
+            method: f.method.value,
+            url: f.url.value.trim(),
+            parameters: JSON.parse(f.parameters.value || "{}"),
+            timeoutMs: Number(f.timeoutMs.value),
+            confirm: f.confirm.checked,
+            requireUser: f.requireUser.checked,
+            enabled: f.enabled.checked,
+          };
+          if (f.headers.value.trim()) body.headers = JSON.parse(f.headers.value);
+          await api(x ? "PATCH" : "POST", x ? `/actions/${x.id}` : "/actions", body);
+          dlg.close();
+          route();
+        } catch (err) {
+          msg.replaceChildren(notice(err instanceof SyntaxError ? `Invalid JSON: ${err.message}` : errorText(err), true));
+        }
+      },
+    },
+    h("div", { class: "two" }, field("Tool name", f.name, "What the model calls."), field("Label", f.title, "Shown to visitors while it runs.")),
+    field("Description", f.description),
+    h("div", { class: "two" }, field("Method", f.method), field("Timeout (ms)", f.timeoutMs)),
+    field("URL", f.url, "{name} placeholders are filled from arguments. Other arguments go to the query string (GET, DELETE) or the JSON body."),
+    field("Parameters (JSON Schema)", f.parameters),
+    field("Headers (JSON, stored encrypted)", f.headers),
+    h("label", { class: "check" }, f.confirm, "Ask the visitor before each call (use for anything that changes data)"),
+    h("label", { class: "check" }, f.requireUser, "Signed-in users only; forward their identity as EA-User-* headers"),
+    h("label", { class: "check" }, f.enabled, "Enabled"),
+    msg,
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: x ? "Save" : "Create" })),
+  );
+  const dlg = modal(x ? `Edit ${x.title}` : "New action", form, { wide: true });
+}
+
+function actionTest(x) {
+  const args = h("textarea", { class: "mono", rows: 5, value: "{}" });
+  const out = h("div");
+  const form = h(
+    "form",
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        try {
+          const r = await api("POST", `/actions/${x.id}/test`, { arguments: JSON.parse(args.value || "{}") });
+          out.replaceChildren(h("p", {}, h("span", { class: `badge ${r.isError ? "bad" : "ok"}`, text: `HTTP ${r.status}` }), ` ${r.durationMs} ms`), h("pre", { text: r.output }));
+        } catch (err) {
+          out.replaceChildren(notice(err instanceof SyntaxError ? `Invalid JSON: ${err.message}` : errorText(err), true));
+        }
+      },
+    },
+    field("Arguments (JSON)", args),
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Call" })),
+    out,
+  );
+  modal(`Test ${x.title}`, form, { wide: true });
+}
+
+// ------------------------------------------------------------------ webhooks
+const WEBHOOK_EVENTS = ["conversation.created", "message.completed", "feedback.submitted", "handoff.requested", "source.synced"];
+
+async function webhooks(main) {
+  const list = await api("GET", "/webhooks");
+  main.append(
+    h("p", { class: "muted", text: "Send events to your helpdesk, CRM, chat or automation tool. Signed per the Standard Webhooks spec; failed deliveries are retried for about 4 hours." }),
+    h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn primary", onclick: () => webhookForm(null), text: "New webhook" })),
+    h(
+      "div",
+      { class: "card" },
+      list.length
+        ? h(
+            "table",
+            {},
+            h("thead", {}, h("tr", {}, ["Endpoint", "Events", ""].map((t) => h("th", { text: t })))),
+            h(
+              "tbody",
+              {},
+              list.map((w) =>
+                h(
+                  "tr",
+                  {},
+                  h("td", {}, h("div", { class: "mono small", text: w.url }), w.description ? h("div", { class: "small muted", text: w.description }) : null, w.enabled ? null : h("span", { class: "badge", text: "disabled" })),
+                  h("td", {}, w.events.map((e) => h("span", { class: "badge", text: e }))),
+                  h(
+                    "td",
+                    { class: "row" },
+                    h("button", { class: "btn", onclick: () => webhookForm(w), text: "Edit" }),
+                    h("button", {
+                      class: "btn",
+                      text: "Send test",
+                      onclick: async (e) => {
+                        const r = await api("POST", `/webhooks/${w.id}/test`);
+                        e.target.textContent = r.ok ? `OK (${r.status})` : `Failed: ${r.error ?? r.status}`;
+                      },
+                    }),
+                    h("button", { class: "btn", onclick: () => deliveries(w), text: "Deliveries" }),
+                    h("button", {
+                      class: "btn danger",
+                      text: "Delete",
+                      onclick: async () => {
+                        if (!confirm("Delete this webhook?")) return;
+                        await api("DELETE", `/webhooks/${w.id}`);
+                        route();
+                      },
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          )
+        : h("p", { class: "muted", text: "No webhooks yet." }),
+    ),
+  );
+}
+
+function webhookForm(w) {
+  const url = h("input", { value: w?.url ?? "", required: true, placeholder: "https://hooks.example.com/assistant" });
+  const description = h("input", { value: w?.description ?? "" });
+  const enabled = h("input", { type: "checkbox", checked: w?.enabled ?? true });
+  const checks = WEBHOOK_EVENTS.map((e) => h("label", { class: "check" }, h("input", { type: "checkbox", value: e, checked: w ? w.events.includes(e) : e === "handoff.requested" }), h("code", { text: e })));
+  const msg = h("div");
+  const form = h(
+    "form",
+    {
+      onsubmit: async (ev) => {
+        ev.preventDefault();
+        const body = { url: url.value.trim(), description: description.value, enabled: enabled.checked, events: checks.map((l) => l.querySelector("input")).filter((c) => c.checked).map((c) => c.value) };
+        try {
+          const r = await api(w ? "PATCH" : "POST", w ? `/webhooks/${w.id}` : "/webhooks", body);
+          if (!w) form.replaceChildren(h("p", { text: "Webhook created. Verify deliveries with this signing secret:" }), secretBox(r.secret), h("button", { class: "btn", type: "button", text: "Done", onclick: () => (dlg.close(), route()) }));
+          else (dlg.close(), route());
+        } catch (err) {
+          msg.replaceChildren(notice(errorText(err), true));
+        }
+      },
+    },
+    field("Endpoint URL", url),
+    field("Description", description),
+    h("fieldset", { class: "box" }, h("legend", { text: "Events" }), checks),
+    h("label", { class: "check" }, enabled, "Enabled"),
+    msg,
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: w ? "Save" : "Create" })),
+  );
+  const dlg = modal(w ? "Edit webhook" : "New webhook", form);
+}
+
+async function deliveries(w) {
+  const body = h("div", {}, h("p", { class: "muted", text: "Loading…" }));
+  modal("Recent deliveries", body, { wide: true });
+  const rows = await api("GET", `/webhooks/${w.id}/deliveries`);
+  body.replaceChildren(
+    rows.length
+      ? h(
+          "table",
+          {},
+          h("thead", {}, h("tr", {}, ["Event", "Status", "Attempts", "Last error", "Created"].map((t) => h("th", { text: t })))),
+          h("tbody", {}, rows.map((d) => h("tr", {}, h("td", {}, h("code", { text: d.event })), h("td", {}, h("span", { class: `badge ${d.status === "succeeded" ? "ok" : d.status === "failed" ? "bad" : "warn"}`, text: d.status })), h("td", { text: String(d.attempts) }), h("td", { class: "small", text: d.lastError ?? "" }), h("td", { class: "small", text: fmtDate(d.createdAt) })))),
+        )
+      : h("p", { class: "muted", text: "No deliveries yet." }),
+  );
+}
+
+// ------------------------------------------------------------------ settings
+async function settings(main) {
+  const [st, keys] = await Promise.all([api("GET", "/settings"), api("GET", "/keys")]);
+  const retention = h("input", { type: "number", min: 1, max: 3650, value: st.retentionDays ?? "", placeholder: "Keep forever" });
+  const budget = h("input", { type: "number", min: 1, value: st.dailyTokenBudget ?? "", placeholder: "Server default" });
+  const msg = h("div");
+  const keyRows = h("tbody");
+  for (const k of keys) {
+    keyRows.append(
+      h(
+        "tr",
+        {},
+        h("td", {}, h("strong", { text: k.name }), h("div", { class: "small mono muted", text: `${k.prefix}…` })),
+        h("td", {}, k.scopes.map((x) => h("span", { class: "badge", text: x })), k.scopes.includes("mcp") ? h("div", { class: "small muted", text: `access: ${k.access.join(", ")}` }) : null),
+        h("td", { class: "small", text: k.lastUsedAt ? fmtDate(k.lastUsedAt) : "never" }),
+        h("td", {}, h("button", { class: "btn danger", text: "Revoke", onclick: async () => { if (!confirm(`Revoke "${k.name}"?`)) return; try { await api("DELETE", `/keys/${k.id}`); route(); } catch (err) { alert(errorText(err)); } } })),
+      ),
+    );
+  }
+  const newName = h("input", { placeholder: "Key name", required: true });
+  const newScope = h("select", {}, h("option", { value: "admin", text: "admin: full admin API" }), h("option", { value: "mcp", text: "mcp: MCP endpoint only (read knowledge, ask)" }));
+  const newAccess = h("input", { value: "public", placeholder: "public, users, staff" });
+  const keyMsg = h("div");
+  main.append(
+    h(
+      "div",
+      { class: "card" },
+      h("h2", { text: "Data and usage" }),
+      h(
+        "form",
+        {
+          onsubmit: async (e) => {
+            e.preventDefault();
+            try {
+              await api("PATCH", "/settings", { retentionDays: retention.value ? Number(retention.value) : null, dailyTokenBudget: budget.value ? Number(budget.value) : null });
+              msg.replaceChildren(notice("Saved."));
+            } catch (err) {
+              msg.replaceChildren(notice(errorText(err), true));
+            }
+          },
+        },
+        h("div", { class: "two" }, field("Delete conversations after (days)", retention, "Empty keeps them forever. Deletion is permanent."), field("Daily model-token budget", budget, "Shared by widgets without their own budget.")),
+        msg,
+        h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Save" })),
+      ),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("h2", { text: "API keys" }),
+      h("table", {}, h("thead", {}, h("tr", {}, ["Name", "Scope", "Last used", ""].map((t) => h("th", { text: t })))), keyRows),
+      h(
+        "form",
+        {
+          style: "margin-top:12px",
+          onsubmit: async (e) => {
+            e.preventDefault();
+            try {
+              const r = await api("POST", "/keys", { name: newName.value.trim(), scopes: [newScope.value], access: csv(newAccess.value) });
+              keyMsg.replaceChildren(h("p", { text: "Key created. It is shown only once:" }), secretBox(r.key), h("button", { class: "btn", type: "button", text: "Done", onclick: () => route() }));
+            } catch (err) {
+              keyMsg.replaceChildren(notice(errorText(err), true));
+            }
+          },
+        },
+        h("div", { class: "two" }, field("Name", newName), field("Scope", newScope)),
+        field("Knowledge access (mcp keys)", newAccess, "Comma-separated access tags the key may read."),
+        keyMsg,
+        h("div", { class: "row" }, h("button", { class: "btn", type: "submit", text: "Create key" })),
+      ),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("h2", { text: "Erase a visitor's data" }),
+      (() => {
+        const subject = h("input", { placeholder: "user:123 or anon:…" });
+        const out = h("div");
+        return h(
+          "form",
+          {
+            onsubmit: async (e) => {
+              e.preventDefault();
+              if (!subject.value.trim() || !confirm(`Delete every conversation of ${subject.value.trim()}?`)) return;
+              const r = await api("DELETE", `/subjects/${encodeURIComponent(subject.value.trim())}`);
+              out.replaceChildren(notice(`Deleted ${r.deletedConversations} conversation(s).`));
+            },
+          },
+          field("Subject id", subject, "Shown in Conversations. Signed-in users are user:<sub> from your token."),
+          out,
+          h("div", { class: "row" }, h("button", { class: "btn danger", type: "submit", text: "Erase" })),
+        );
+      })(),
+    ),
+  );
+}
+
 // ------------------------------------------------------------------ shell + router
 async function route() {
   clearTimeout(pollTimer);
-  const name = (location.hash.replace(/^#\//, "") || "overview").split("/")[0];
+  const name = (location.hash.replace(/^#\//, "") || "overview").split(/[/?]/)[0];
   const view = VIEWS[name] ?? VIEWS.overview;
   document.querySelectorAll("aside [data-view]").forEach((b) => b.setAttribute("aria-current", b.dataset.view === name ? "page" : "false"));
   const main = document.querySelector("main");

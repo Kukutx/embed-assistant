@@ -9,8 +9,11 @@ import {
   CreateRunResponse,
   ErrorCode,
   FeedbackRequest,
+  HandoffRequest,
+  HandoffResult,
   MessageList,
   Run,
+  ToolResultRequest,
   isTerminalEvent,
 } from "@embed-assistant/protocol";
 import {
@@ -22,7 +25,7 @@ import {
   listMessages,
   listOwnedConversations,
   setFeedback,
-  softDeleteConversation,
+  deleteOwnedConversation,
   toConversation,
   toMessage,
   touchConversation,
@@ -32,7 +35,10 @@ import {
 } from "../../db/store.js";
 import { ApiError, badRequest, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
+import { redactPii } from "../../lib/pii.js";
 import { tokensUsedToday } from "../../lib/rateLimit.js";
+import { requestHandoff } from "../../runs/handoff.js";
+import { emitWebhook } from "../../webhooks/webhooks.js";
 import { iso } from "../../lib/time.js";
 import { param, route } from "../define.js";
 import type { AppEnv, Services } from "../env.js";
@@ -78,7 +84,7 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
     const rows = await sql<RunRow[]>`
       SELECT r.* FROM runs r JOIN conversations cv ON cv.id = r.conversation_id
       WHERE r.id = ${runId} AND r.tenant_id = ${o.tenantId} AND cv.widget_id = ${o.widgetId}
-        AND cv.subject_id = ${o.subjectId} AND cv.deleted_at IS NULL`;
+        AND cv.subject_id = ${o.subjectId}`;
     if (!rows[0]) throw notFound("run");
     return rows[0];
   }
@@ -101,6 +107,10 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
         { ...owner(c), assistantId: c.get("widget").assistant_id, subjectKind: sess.subjectKind },
         body.title ?? null,
       );
+      void emitWebhook(sql, conv.tenant_id, "conversation.created", {
+        conversation: { id: conv.id, widgetId: conv.widget_id, assistantId: conv.assistant_id, createdAt: conv.created_at.toISOString() },
+        subject: { id: sess.subjectId, kind: sess.subjectKind, name: sess.subjectName },
+      }).catch((err) => s.log.warn({ err }, "webhook enqueue failed"));
       return c.json(toConversation(conv), 201);
     },
   );
@@ -146,12 +156,15 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
       method: "delete",
       path: "/v1/conversations/{id}",
       tag: "Chat",
-      summary: "Delete a conversation",
+      summary: "Delete a conversation (permanently)",
       auth: "session",
       response: { status: 204, description: "Deleted" },
     },
     async (c) => {
-      if (!(await softDeleteConversation(sql, owner(c), param(c, "id")))) throw notFound("conversation");
+      const id = param(c, "id");
+      const active = await sql<{ id: string }[]>`SELECT id FROM runs WHERE conversation_id = ${id} AND status IN ('queued', 'running')`;
+      for (const r of active) s.executor.cancelLocal(r.id);
+      if (!(await deleteOwnedConversation(sql, owner(c), id))) throw notFound("conversation");
       return c.body(null, 204);
     },
   );
@@ -225,7 +238,7 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
           tenantId: conv.tenant_id,
           conversationId: conv.id,
           role: "user",
-          content: body.content,
+          content: assistant.redact_pii ? redactPii(body.content) : body.content,
           status: "complete",
         });
         const runRows = await tx<RunRow[]>`
@@ -235,7 +248,7 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
                   ${assistant.model_alias}, ${assistant.version}, ${body.idempotencyKey ?? null},
                   ${body.context ? tx.json(body.context as never) : null})
           RETURNING *`;
-        await touchConversation(tx, conv.tenant_id, conv.id, titleFrom(body.content));
+        await touchConversation(tx, conv.tenant_id, conv.id, titleFrom(userMessage.content));
         return { run: runRows[0]!, userMessage };
       });
 
@@ -247,11 +260,14 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
       s.executor.start({
         runId: created.run.id,
         tenantId: conv.tenant_id,
+        widgetId: widget.id,
         conversationId: conv.id,
         userMessage: created.userMessage,
         assistant,
         access: sess.access,
+        subject: { id: sess.subjectId, kind: sess.subjectKind, name: sess.subjectName, email: sess.subjectEmail ?? null },
         context: body.context,
+        clientTools: body.clientTools,
       });
       const res: CreateRunResponse = { run: toRun(created.run), userMessage: toMessage(created.userMessage) };
       return c.json(res, 202);
@@ -403,7 +419,81 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
       if (!msg || msg.role !== "assistant") throw notFound("message");
       await ownedConversationOr404(c, msg.conversation_id);
       await setFeedback(sql, sess.tenantId, msg.id, body.rating, body.comment ?? null);
+      void emitWebhook(sql, sess.tenantId, "feedback.submitted", {
+        conversationId: msg.conversation_id,
+        messageId: msg.id,
+        rating: body.rating,
+        comment: body.comment ?? null,
+        answer: msg.content,
+        subject: { id: sess.subjectId, kind: sess.subjectKind, name: sess.subjectName },
+      }).catch((err) => s.log.warn({ err }, "webhook enqueue failed"));
       return c.body(null, 204);
+    },
+  );
+
+  route(
+    app,
+    {
+      method: "post",
+      path: "/v1/runs/{id}/tool-results",
+      tag: "Chat",
+      summary: "Answer a tool.input_required event",
+      description:
+        "Send the result of a page tool (`output`, optional `isError`) or the visitor's decision on an action " +
+        "(`approved`). Each call id can be answered once.",
+      auth: "session",
+      body: ToolResultRequest,
+      response: { status: 204, description: "Accepted" },
+    },
+    async (c, { body }) => {
+      const run = await ownedRunOr404(c, param(c, "id"));
+      if (run.status !== "running") throw new ApiError(ErrorCode.Conflict, "the run is not waiting for input");
+      // Only call ids the run actually asked for are accepted.
+      const asked = await sql`
+        SELECT 1 FROM run_events WHERE run_id = ${run.id} AND type = 'tool.input_required' AND data->>'callId' = ${body.callId} LIMIT 1`;
+      if (!asked.length) throw notFound("tool call");
+      const data = { approved: body.approved ?? null, output: body.output ?? null, isError: body.isError ?? false };
+      const rows = await sql`
+        INSERT INTO run_inputs (run_id, call_id, data) VALUES (${run.id}, ${body.callId}, ${sql.json(data as never)})
+        ON CONFLICT DO NOTHING RETURNING call_id`;
+      if (!rows.length) throw new ApiError(ErrorCode.Conflict, "this tool call was already answered");
+      return c.body(null, 204);
+    },
+  );
+
+  route(
+    app,
+    {
+      method: "post",
+      path: "/v1/conversations/{id}/handoff",
+      tag: "Chat",
+      summary: "Ask for a human",
+      description:
+        "Marks the conversation for human follow-up and notifies the team through the `handoff.requested` webhook " +
+        "(transcript and summary included). Returns the message to show the visitor.",
+      auth: "session",
+      body: HandoffRequest,
+      response: { status: 200, schema: HandoffResult },
+    },
+    async (c, { body }) => {
+      const sess = c.get("session");
+      const widget = c.get("widget");
+      const conv = await ownedConversationOr404(c, param(c, "id"));
+      const assistant = await getAssistant(sql, widget.tenant_id, conv.assistant_id);
+      if (!assistant?.handoff.enabled) throw badRequest("human handoff is not enabled for this assistant");
+      await s.limiter.hit(`handoff:sub:${sess.widgetId}:${sess.subjectId}`, 10, 3600);
+      const result = await requestHandoff(
+        { sql, models: s.models, log: s.log },
+        {
+          tenantId: conv.tenant_id,
+          conversationId: conv.id,
+          assistant,
+          reason: body.reason ? (assistant.redact_pii ? redactPii(body.reason) : body.reason) : null,
+          trigger: "visitor",
+          subject: { id: sess.subjectId, kind: sess.subjectKind, name: sess.subjectName, email: sess.subjectEmail ?? null },
+        },
+      );
+      return c.json(result);
     },
   );
 }

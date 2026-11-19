@@ -18,7 +18,22 @@ export interface PageContextInput {
 
 export type UserTokenProvider = () => string | null | undefined | Promise<string | null | undefined>;
 
-export type EventName = "ready" | "open" | "close" | "message" | "error";
+export type EventName = "ready" | "open" | "close" | "message" | "error" | "handoff" | "tool";
+
+/**
+ * A tool the assistant may call in the visitor's browser, e.g. read the cart,
+ * open a page or prefill a form. The handler's return value (string or JSON)
+ * is sent back to the model. Throwing reports an error to the model.
+ */
+export interface ToolRegistration {
+  /** Letters, digits, _ and -, starting with a letter. */
+  name: string;
+  /** When the assistant should use it. */
+  description: string;
+  /** JSON Schema (type "object") of the arguments. */
+  parameters?: Record<string, unknown>;
+  handler: (args: Record<string, unknown>) => unknown;
+}
 export type Listener = (detail: unknown) => void;
 
 /** Options read from the script tag (data-*) or passed to EmbedAssistant.init(). */
@@ -53,6 +68,9 @@ export interface EmbedAssistantApi {
   /** Recognise the signed-in user: a function returning a JWT signed by your backend (or null to sign out). */
   identify(provider: UserTokenProvider | null): void;
   on(event: EventName, fn: Listener): () => void;
+  /** Let the assistant call a function on this page. Returns an unregister function. */
+  registerTool(tool: ToolRegistration): () => void;
+  unregisterTool(name: string): void;
   /** Remove the widget from the page. */
   destroy(): void;
 }
@@ -65,6 +83,8 @@ export interface MountContext {
   emit(event: EventName, detail?: unknown): void;
   /** State set through the API before the app loaded. */
   initial: { context: PageContextInput; identify: UserTokenProvider | null };
+  /** Page tools, shared with the loader (registrations made before the app loaded included). */
+  tools: Map<string, ToolRegistration>;
 }
 
 export interface AppHandle {

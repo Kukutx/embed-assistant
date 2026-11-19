@@ -48,6 +48,7 @@ export function publicRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCach
         theme: widget.theme,
         defaultLocale: widget.default_locale,
         features: widget.features,
+        handoff: { enabled: assistant.handoff.enabled, url: assistant.handoff.url, label: assistant.handoff.label },
         protocolVersion: PROTOCOL_VERSION,
       };
       c.header("Cache-Control", "public, max-age=60");
@@ -78,6 +79,7 @@ export function publicRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCach
       let subjectId: string;
       let subjectKind: "anonymous" | "user";
       let subjectName: string | null = null;
+      let subjectEmail: string | null = null;
       let access: string[];
       let maxExp: number | undefined;
       if (body.userToken) {
@@ -85,6 +87,7 @@ export function publicRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCach
         subjectId = `user:${claims.sub}`;
         subjectKind = "user";
         subjectName = claims.name ?? null;
+        subjectEmail = claims.email ?? null;
         access = [...new Set([ACCESS_PUBLIC, ACCESS_USERS, ...(claims.groups ?? [])])];
         // Group changes on the host side take effect within an hour at most.
         maxExp = Math.floor(Date.now() / 1000) + USER_SESSION_MAX_SECONDS;
@@ -102,6 +105,7 @@ export function publicRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCach
           subjectId,
           subjectKind,
           subjectName,
+          subjectEmail,
           access,
         },
         maxExp,

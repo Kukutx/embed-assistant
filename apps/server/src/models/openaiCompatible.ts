@@ -1,4 +1,4 @@
-import type { ChatChunk, ChatModel, ChatRequest, EmbeddingModel } from "./types.js";
+import type { ChatChunk, ChatModel, ChatRequest, ChatTurn, EmbeddingModel } from "./types.js";
 import { ModelError, isRetryableStatus } from "./types.js";
 import { readSseData } from "./sse.js";
 
@@ -45,7 +45,10 @@ export class OpenAICompatibleChat implements ChatModel {
           stream: true,
           stream_options: { include_usage: true },
           max_tokens: req.maxOutputTokens,
-          messages: [{ role: "system", content: req.system }, ...req.messages],
+          messages: [{ role: "system", content: req.system }, ...toOpenAIMessages(req.messages)],
+          ...(req.tools?.length
+            ? { tools: req.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) }
+            : {}),
         }),
       });
     } catch (err) {
@@ -56,10 +59,14 @@ export class OpenAICompatibleChat implements ChatModel {
       const text = await res.text().catch(() => "");
       throw new ModelError(`upstream ${res.status}: ${text.slice(0, 300)}`, isRetryableStatus(res.status), res.status);
     }
+    const calls = new Map<number, { id: string; name: string; args: string }>();
     for await (const data of readSseData(res.body)) {
       if (data === "[DONE]") break;
       let parsed: {
-        choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[];
+        choices?: {
+          delta?: { content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] };
+          finish_reason?: string | null;
+        }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
       };
       try {
@@ -67,9 +74,18 @@ export class OpenAICompatibleChat implements ChatModel {
       } catch {
         continue;
       }
-      const delta = parsed.choices?.[0]?.delta?.content;
+      const choice = parsed.choices?.[0];
+      const delta = choice?.delta?.content;
       if (delta) yield { type: "text", text: delta };
-      if (parsed.choices?.[0]?.finish_reason === "content_filter") yield { type: "refusal" };
+      for (const tc of choice?.delta?.tool_calls ?? []) {
+        const i = tc.index ?? 0;
+        const cur = calls.get(i) ?? { id: "", name: "", args: "" };
+        if (tc.id) cur.id = tc.id;
+        if (tc.function?.name) cur.name += tc.function.name;
+        if (tc.function?.arguments) cur.args += tc.function.arguments;
+        calls.set(i, cur);
+      }
+      if (choice?.finish_reason === "content_filter") yield { type: "refusal" };
       if (parsed.usage) {
         yield {
           type: "usage",
@@ -78,7 +94,38 @@ export class OpenAICompatibleChat implements ChatModel {
         };
       }
     }
+    for (const [i, c] of [...calls.entries()].sort((a, b) => a[0] - b[0])) {
+      if (!c.name) continue;
+      let input: Record<string, unknown> = {};
+      try {
+        const v = c.args.trim() ? (JSON.parse(c.args) as unknown) : {};
+        if (v && typeof v === "object" && !Array.isArray(v)) input = v as Record<string, unknown>;
+      } catch {
+        input = { __invalid_json: c.args.slice(0, 2000) };
+      }
+      yield { type: "tool_call", call: { id: c.id || `call_${i}`, name: c.name, input } };
+    }
   }
+}
+
+/** Provider-neutral transcript -> Chat Completions messages. */
+export function toOpenAIMessages(turns: ChatTurn[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const t of turns) {
+    if (t.role === "user") out.push({ role: "user", content: t.content });
+    else if (t.role === "assistant") {
+      out.push({
+        role: "assistant",
+        content: t.content || (t.toolCalls?.length ? null : ""),
+        ...(t.toolCalls?.length
+          ? { tool_calls: t.toolCalls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.input) } })) }
+          : {}),
+      });
+    } else {
+      for (const r of t.results) out.push({ role: "tool", tool_call_id: r.callId, content: r.isError ? `Error: ${r.content}` : r.content || "(empty)" });
+    }
+  }
+  return out;
 }
 
 export class OpenAICompatibleEmbeddings implements EmbeddingModel {

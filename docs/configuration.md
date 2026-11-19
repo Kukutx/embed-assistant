@@ -69,6 +69,13 @@ Without `MODELS_CONFIG`, these aliases are generated from whatever is configured
 | `SERVE_CONSOLE` | `true` | Serve `/admin/` and `/demo`. |
 | `METRICS_TOKEN` | | Require a bearer token for `/metrics`. |
 | `INGEST_ALLOW_PRIVATE_NETWORKS` | `false` | Allow crawling private/loopback addresses (local development only). |
+| `OUTBOUND_ALLOW_PRIVATE_NETWORKS` | `false` | Allow actions and webhooks to call private/loopback addresses (for APIs on your internal network; keep off on shared hosts). |
+
+## Data
+
+| Variable | Default | |
+|---|---|---|
+| `DEFAULT_RETENTION_DAYS` | `0` | Delete conversations older than this many days (checked hourly); `0` keeps them. Each tenant can override it in the console under *Settings*. |
 
 ## CLI
 

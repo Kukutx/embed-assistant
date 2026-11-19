@@ -14,6 +14,7 @@ import {
   type EventName,
   type Listener,
   type PageContextInput,
+  type ToolRegistration,
   type UserTokenProvider,
   type WidgetOptions,
 } from "./shared.js";
@@ -108,6 +109,7 @@ import {
     });
   };
   const initial: { context: PageContextInput; identify: UserTokenProvider | null } = { context: {}, identify: null };
+  const tools = new Map<string, ToolRegistration>();
   let app: AppHandle | null = null;
   let pending: ((a: AppHandle) => void)[] = [];
   let loading: Promise<void> | null = null;
@@ -125,7 +127,7 @@ import {
     })
       .then(() => {
         if (app || !window.__embedAssistantMount) return;
-        app = window.__embedAssistantMount({ options, root, host, launcher, emit, initial });
+        app = window.__embedAssistantMount({ options, root, host, launcher, emit, initial, tools });
         const queued = pending;
         pending = [];
         queued.forEach((fn) => fn(app!));
@@ -163,6 +165,16 @@ import {
       set.add(fn);
       return () => set!.delete(fn);
     },
+    registerTool: (tool) => {
+      if (!tool || !/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(tool.name) || typeof tool.handler !== "function" || !tool.description) {
+        throw new TypeError("[embed-assistant] registerTool needs a valid name, a description and a handler");
+      }
+      tools.set(tool.name, tool);
+      return () => {
+        if (tools.get(tool.name) === tool) tools.delete(tool.name);
+      };
+    },
+    unregisterTool: (name) => void tools.delete(name),
     destroy: () => {
       app?.destroy();
       host.remove();

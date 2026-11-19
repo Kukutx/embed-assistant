@@ -4,7 +4,7 @@ import { ErrorCode } from "@embed-assistant/protocol";
 import { hashAdminKey, ADMIN_KEY_PREFIX } from "../auth/adminKey.js";
 import { isOriginAllowed } from "../auth/origin.js";
 import { findAdminKey, getWidgetById, type WidgetRow } from "../db/store.js";
-import { ApiError, unauthorized } from "../lib/errors.js";
+import { ApiError, forbidden, unauthorized } from "../lib/errors.js";
 import { ulid } from "../lib/ids.js";
 import { metrics } from "../lib/metrics.js";
 import type { Sql } from "../db/pool.js";
@@ -121,7 +121,9 @@ export function adminAuth(s: Services): MiddlewareHandler<AppEnv> {
     if (!key || !key.startsWith(ADMIN_KEY_PREFIX)) throw unauthorized("missing admin key");
     const row = await findAdminKey(s.sql, hashAdminKey(key));
     if (!row) throw unauthorized("invalid admin key");
+    if (!row.scopes.includes("admin")) throw forbidden("this key has no admin scope");
     c.set("tenantId", row.tenant_id);
+    c.set("apiKey", row);
     await next();
   };
 }

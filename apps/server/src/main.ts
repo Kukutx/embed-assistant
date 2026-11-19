@@ -4,7 +4,10 @@ import { migrate } from "./db/migrate.js";
 import { createApp } from "./http/app.js";
 import { ingestSource } from "./knowledge/ingest.js";
 import { JobWorker } from "./knowledge/jobs.js";
+import { metrics } from "./lib/metrics.js";
+import { purgeExpired } from "./lib/retention.js";
 import { createServices } from "./services.js";
+import { deliverWebhook } from "./webhooks/webhooks.js";
 
 const cfg = loadConfig();
 const s = createServices(cfg);
@@ -17,6 +20,14 @@ await s.bus.listen();
 const worker = cfg.RUN_WORKER
   ? new JobWorker(sql, log, {
       ingest_source: (job) => ingestSource(s.ingest, job.tenant_id, String(job.payload.sourceId)),
+      deliver_webhook: (job) =>
+        deliverWebhook({ sql, key: s.secretsKey, log, allowPrivate: cfg.OUTBOUND_ALLOW_PRIVATE_NETWORKS }, job).then(
+          () => metrics.webhooks.inc({ status: "ok" }),
+          (err: unknown) => {
+            metrics.webhooks.inc({ status: "error" });
+            throw err;
+          },
+        ),
     })
   : null;
 worker?.start();
@@ -24,6 +35,13 @@ worker?.start();
 const timers = [
   setInterval(() => void s.executor.reapStale().catch((err) => log.warn({ err }, "reaper failed")), 15_000),
   setInterval(() => void s.limiter.sweep().catch(() => {}), 3600_000),
+  setInterval(
+    () =>
+      void purgeExpired(sql, cfg.DEFAULT_RETENTION_DAYS)
+        .then((n) => n && log.info({ deleted: n }, "retention: conversations deleted"))
+        .catch((err) => log.warn({ err }, "retention purge failed")),
+    3600_000,
+  ),
 ];
 
 const app = createApp(s);

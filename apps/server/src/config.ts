@@ -42,6 +42,10 @@ const EnvSchema = z.object({
   SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(7 * 86400).default(12 * 3600),
   /** Allow ingestion from private/loopback addresses (development only). */
   INGEST_ALLOW_PRIVATE_NETWORKS: bool.default(false),
+  /** Allow actions, webhooks and MCP servers on private/loopback addresses (self-hosted intranets). */
+  OUTBOUND_ALLOW_PRIVATE_NETWORKS: bool.default(false),
+  /** Default retention for conversations in days (0 = keep forever); tenants can override it. */
+  DEFAULT_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(0),
   /** Serve the bundled widget scripts from /widget (disable when using a CDN). */
   SERVE_WIDGET: bool.default(true),
   /** Directory holding the built widget files. */

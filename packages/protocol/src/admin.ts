@@ -3,6 +3,7 @@
  * `Authorization: Bearer ea_admin_...`. Never called from host pages.
  */
 import { z } from "zod";
+import { ToolName, ToolParameters } from "./tools.js";
 
 const Id = z.string().min(1).max(64);
 const Timestamp = z.string();
@@ -14,6 +15,21 @@ export const HttpUrl = z
   .string()
   .max(2048)
   .regex(/^https?:\/\/[^\s]+$/i, "must be an http(s) URL");
+
+export const DEFAULT_HANDOFF_MESSAGE =
+  "I've passed this conversation to our team. Someone will get back to you as soon as possible.";
+
+/** "Talk to a person". The handoff itself is delivered through the `handoff.requested` webhook. */
+export const HandoffConfig = z.object({
+  enabled: z.boolean(),
+  /** Shown to the visitor after a handoff. */
+  message: z.string().min(1).max(1000),
+  /** Optional contact page, ticket form or chat link offered with the message. */
+  url: HttpUrl.nullable(),
+  /** Label of the handoff button in the widget (default: localized "Talk to a person"). */
+  label: z.string().max(60).nullable(),
+});
+export type HandoffConfig = z.infer<typeof HandoffConfig>;
 
 export const Assistant = z.object({
   id: Id,
@@ -28,6 +44,19 @@ export const Assistant = z.object({
   sourceIds: z.array(Id),
   /** Answer only from retrieved sources; say so when nothing relevant is found. */
   groundedOnly: z.boolean(),
+  /** HTTP actions (tools) this assistant may call. */
+  actionIds: z.array(Id),
+  handoff: HandoffConfig,
+  /** Offer follow-up question suggestions after each answer. */
+  followUps: z.boolean(),
+  /** Rewrite follow-up questions into standalone search queries (uses the `fast` model alias). */
+  queryRewrite: z.boolean(),
+  /** Let the model run extra knowledge searches with its own queries. */
+  agenticSearch: z.boolean(),
+  /** Accept tools registered by the host page (`EmbedAssistant.registerTool`). */
+  clientTools: z.boolean(),
+  /** Mask e-mail addresses, phone numbers, card numbers and IBANs before storing or sending to a model. */
+  redactPii: z.boolean(),
   version: z.number().int(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
@@ -45,6 +74,13 @@ const AssistantFields = {
   disclaimer: z.string().max(300).nullable(),
   sourceIds: z.array(Id).max(100),
   groundedOnly: z.boolean(),
+  actionIds: z.array(Id).max(50),
+  handoff: HandoffConfig,
+  followUps: z.boolean(),
+  queryRewrite: z.boolean(),
+  agenticSearch: z.boolean(),
+  clientTools: z.boolean(),
+  redactPii: z.boolean(),
 };
 
 export const AssistantInput = z.object({
@@ -57,6 +93,13 @@ export const AssistantInput = z.object({
   disclaimer: AssistantFields.disclaimer.default(null),
   sourceIds: AssistantFields.sourceIds.default([]),
   groundedOnly: AssistantFields.groundedOnly.default(true),
+  actionIds: AssistantFields.actionIds.default([]),
+  handoff: HandoffConfig.default({ enabled: false, message: DEFAULT_HANDOFF_MESSAGE, url: null, label: null }),
+  followUps: AssistantFields.followUps.default(true),
+  queryRewrite: AssistantFields.queryRewrite.default(true),
+  agenticSearch: AssistantFields.agenticSearch.default(true),
+  clientTools: AssistantFields.clientTools.default(true),
+  redactPii: AssistantFields.redactPii.default(false),
 });
 export type AssistantInput = z.infer<typeof AssistantInput>;
 /** PATCH body: only the fields present are changed (no defaults are applied). */
@@ -195,6 +238,7 @@ export const AdminConversation = z.object({
   subjectKind: z.enum(["anonymous", "user"]),
   title: z.string().nullable(),
   messageCount: z.number().int(),
+  handoffRequestedAt: Timestamp.nullable().optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });
@@ -213,3 +257,184 @@ export const UsageSummary = z.object({
   p95FirstTokenMs: z.number().nullable(),
 });
 export type UsageSummary = z.infer<typeof UsageSummary>;
+
+// ---------------------------------------------------------------------------
+// Actions: HTTP endpoints the assistant can call as tools
+// ---------------------------------------------------------------------------
+
+export const ActionMethod = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+
+export const Action = z.object({
+  id: Id,
+  /** Tool name the model sees, e.g. `get_order_status`. */
+  name: ToolName,
+  /** Human-readable label shown in the widget while it runs. */
+  title: z.string(),
+  /** When to use it, for the model. Be specific. */
+  description: z.string(),
+  /** JSON Schema (type object) of the arguments. */
+  parameters: z.record(z.string(), z.unknown()),
+  method: ActionMethod,
+  /** `{name}` placeholders are filled from arguments (URL-encoded); other arguments go to the query (GET/DELETE) or JSON body. */
+  url: z.string(),
+  /** Header names configured (values are write-only and stored encrypted). */
+  headerNames: z.array(z.string()),
+  /** Ask the visitor to approve each call (use for anything that changes data). */
+  confirm: z.boolean(),
+  /** Only offer this action to signed-in users, and forward their identity in `EA-User-*` headers. */
+  requireUser: z.boolean(),
+  timeoutMs: z.number().int(),
+  enabled: z.boolean(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type Action = z.infer<typeof Action>;
+
+const ActionFields = {
+  name: ToolName,
+  title: z.string().min(1).max(100),
+  description: z.string().min(1).max(2000),
+  parameters: ToolParameters,
+  method: ActionMethod,
+  url: HttpUrl,
+  /** Extra request headers, e.g. `{ "Authorization": "Bearer ..." }`. Replaces all headers when present. */
+  headers: z.record(z.string().regex(/^[A-Za-z0-9-]{1,64}$/), z.string().max(4096)).refine((h) => Object.keys(h).length <= 20, "at most 20 headers"),
+  confirm: z.boolean(),
+  requireUser: z.boolean(),
+  timeoutMs: z.number().int().min(1000).max(30_000),
+  enabled: z.boolean(),
+};
+export const ActionInput = z.object({
+  name: ActionFields.name,
+  title: ActionFields.title,
+  description: ActionFields.description,
+  parameters: ActionFields.parameters.default({ type: "object", properties: {} }),
+  method: ActionFields.method.default("POST"),
+  url: ActionFields.url,
+  headers: ActionFields.headers.default({}),
+  confirm: ActionFields.confirm.default(false),
+  requireUser: ActionFields.requireUser.default(false),
+  timeoutMs: ActionFields.timeoutMs.default(10_000),
+  enabled: ActionFields.enabled.default(true),
+});
+export type ActionInput = z.infer<typeof ActionInput>;
+export const ActionPatch = z.object(ActionFields).partial();
+
+export const ActionTestRequest = z.object({ arguments: z.record(z.string(), z.unknown()).default({}) });
+export const ActionTestResult = z.object({
+  status: z.number().int(),
+  isError: z.boolean(),
+  output: z.string(),
+  durationMs: z.number().int(),
+});
+
+// ---------------------------------------------------------------------------
+// Webhooks (Standard Webhooks signatures: webhook-id / webhook-timestamp / webhook-signature)
+// ---------------------------------------------------------------------------
+
+export const WebhookEventType = z.enum([
+  "conversation.created",
+  "message.completed",
+  "feedback.submitted",
+  "handoff.requested",
+  "source.synced",
+]);
+export type WebhookEventType = z.infer<typeof WebhookEventType>;
+
+export const Webhook = z.object({
+  id: Id,
+  url: z.string(),
+  description: z.string(),
+  events: z.array(WebhookEventType),
+  enabled: z.boolean(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type Webhook = z.infer<typeof Webhook>;
+
+const WebhookFields = {
+  url: HttpUrl,
+  description: z.string().max(300),
+  events: z.array(WebhookEventType).min(1),
+  enabled: z.boolean(),
+};
+export const WebhookInput = z.object({
+  url: WebhookFields.url,
+  description: WebhookFields.description.default(""),
+  events: WebhookFields.events,
+  enabled: WebhookFields.enabled.default(true),
+});
+export type WebhookInput = z.infer<typeof WebhookInput>;
+export const WebhookPatch = z.object(WebhookFields).partial();
+/** Returned once on creation / rotation: verify deliveries with it. */
+export const CreatedWebhook = z.object({ webhook: Webhook, secret: z.string() });
+
+export const WebhookDelivery = z.object({
+  id: Id,
+  event: z.string(),
+  status: z.enum(["queued", "running", "succeeded", "failed"]),
+  attempts: z.number().int(),
+  lastError: z.string().nullable(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+
+// ---------------------------------------------------------------------------
+// API keys
+// ---------------------------------------------------------------------------
+
+/** `admin`: full admin API. `mcp`: the MCP endpoint only (read knowledge, ask). */
+export const ApiKeyScope = z.enum(["admin", "mcp"]);
+export const ApiKey = z.object({
+  id: Id,
+  name: z.string(),
+  prefix: z.string(),
+  scopes: z.array(ApiKeyScope),
+  /** Knowledge access tags granted to `mcp` keys. */
+  access: z.array(AccessTag),
+  createdAt: Timestamp,
+  lastUsedAt: Timestamp.nullable(),
+});
+export type ApiKey = z.infer<typeof ApiKey>;
+export const ApiKeyInput = z.object({
+  name: z.string().min(1).max(100),
+  scopes: z.array(ApiKeyScope).min(1).default(["admin"]),
+  access: z.array(AccessTag).min(1).max(50).default(["public"]),
+});
+export const CreatedApiKey = z.object({ apiKey: ApiKey, key: z.string() });
+
+// ---------------------------------------------------------------------------
+// Tenant settings and insights
+// ---------------------------------------------------------------------------
+
+export const TenantSettings = z.object({
+  /** Conversations untouched for this many days are deleted permanently. null = keep forever. */
+  retentionDays: z.number().int().min(1).max(3650).nullable(),
+  /** Daily model-token budget shared by widgets without their own budget. null = server default. */
+  dailyTokenBudget: z.number().int().positive().nullable(),
+});
+export type TenantSettings = z.infer<typeof TenantSettings>;
+export const TenantSettingsPatch = TenantSettings.partial();
+
+const CountedQuestion = z.object({ question: z.string(), count: z.number().int(), lastAskedAt: Timestamp });
+
+export const Insights = z.object({
+  from: Timestamp,
+  to: Timestamp,
+  conversations: z.number().int(),
+  questions: z.number().int(),
+  /** Questions where retrieval found no relevant knowledge. */
+  unanswered: z.number().int(),
+  handoffs: z.number().int(),
+  feedbackUp: z.number().int(),
+  feedbackDown: z.number().int(),
+  /** Share of rated answers that were rated up (0..1), null without ratings. */
+  satisfaction: z.number().nullable(),
+  topQuestions: z.array(CountedQuestion),
+  /** Questions without matching knowledge: write or fix these docs first. */
+  knowledgeGaps: z.array(CountedQuestion),
+  /** Answers rated down, most recent first. */
+  downvoted: z.array(z.object({ conversationId: Id, messageId: Id, question: z.string(), answer: z.string(), comment: z.string().nullable(), createdAt: Timestamp })),
+  tools: z.array(z.object({ name: z.string(), calls: z.number().int(), errors: z.number().int() })),
+});
+export type Insights = z.infer<typeof Insights>;

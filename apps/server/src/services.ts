@@ -41,7 +41,10 @@ export function createServices(cfg: Config, overrides: { sql?: Sql; log?: Logger
     log,
     models,
     bus,
-    executor: new RunExecutor(sql, bus, models, log),
+    executor: new RunExecutor(sql, bus, models, log, {
+      secretsKey: deriveKey(cfg.SECRET_KEY, "widget-secret-encryption"),
+      allowPrivateNetworks: cfg.OUTBOUND_ALLOW_PRIVATE_NETWORKS,
+    }),
     limiter: new RateLimiter(sql),
     sessions: new SessionSigner(deriveKey(cfg.SECRET_KEY, "session-token"), cfg.SESSION_TTL_SECONDS),
     secretsKey: deriveKey(cfg.SECRET_KEY, "widget-secret-encryption"),

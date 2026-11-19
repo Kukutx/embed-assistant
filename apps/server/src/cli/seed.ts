@@ -5,6 +5,7 @@
  *   pnpm seed                 # only when the database has no tenant yet
  *   pnpm seed --new-admin-key # issue another admin key for the first tenant
  */
+import { AssistantInput, DEFAULT_HANDOFF_MESSAGE } from "@embed-assistant/protocol";
 import { generateAdminKey } from "../auth/adminKey.js";
 import { loadConfig } from "../config.js";
 import { createSql } from "../db/pool.js";
@@ -44,7 +45,7 @@ try {
     for (const d of DEMO_DOCS) await upsertDocument(deps, source, { externalId: d.slug, title: d.title, url: null, content: d.content });
     await setSourceStatus(sql, tenantId, source.id, "succeeded");
 
-    const assistant = await createAssistant(sql, tenantId, {
+    const assistant = await createAssistant(sql, tenantId, AssistantInput.parse({
       name: "Assistant",
       instructions: "",
       modelAlias: "standard",
@@ -54,7 +55,8 @@ try {
       disclaimer: "AI answers can be wrong. Check important information.",
       sourceIds: [source.id],
       groundedOnly: true,
-    });
+      handoff: { enabled: true, message: DEFAULT_HANDOFF_MESSAGE, url: null, label: null },
+    }));
     const origin = new URL(cfg.PUBLIC_BASE_URL).origin;
     const secret = `ea_whs_${randomToken(32)}`;
     const widget = await createWidget(

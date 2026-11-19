@@ -71,7 +71,14 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
   const { sql } = s;
   const A = "Admin";
 
-  async function validateAssistantRefs(tenantId: string, input: { modelAlias?: string; sourceIds?: string[] }) {
+  async function validateAssistantRefs(tenantId: string, input: { modelAlias?: string; sourceIds?: string[]; actionIds?: string[] }) {
+    if (input.actionIds?.length) {
+      const rows = await sql<{ id: string }[]>`
+        SELECT id FROM actions WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(input.actionIds)})`;
+      const found = new Set(rows.map((r) => r.id));
+      const missing = input.actionIds.filter((id) => !found.has(id));
+      if (missing.length) throw badRequest("unknown actions", { missing });
+    }
     if (input.modelAlias !== undefined && !s.models.hasAlias(input.modelAlias)) {
       throw badRequest(`unknown model alias "${input.modelAlias}"`, { aliases: s.models.describe().map((m) => m.alias) });
     }

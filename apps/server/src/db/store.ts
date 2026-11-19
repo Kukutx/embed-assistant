@@ -8,6 +8,7 @@ import type {
   AssistantInput,
   Citation,
   Conversation,
+  HandoffConfig,
   KnowledgeDocument,
   KnowledgeSource,
   Message,
@@ -36,6 +37,13 @@ export interface AssistantRow {
   disclaimer: string | null;
   source_ids: string[];
   grounded_only: boolean;
+  action_ids: string[];
+  handoff: HandoffConfig;
+  follow_ups: boolean;
+  query_rewrite: boolean;
+  agentic_search: boolean;
+  client_tools: boolean;
+  redact_pii: boolean;
   version: number;
   created_at: Date;
   updated_at: Date;
@@ -64,6 +72,7 @@ export interface ConversationRow {
   subject_id: string;
   subject_kind: "anonymous" | "user";
   title: string | null;
+  handoff_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -77,6 +86,8 @@ export interface MessageRow {
   citations: Citation[];
   status: Message["status"];
   feedback: "up" | "down" | null;
+  suggestions: string[];
+  tool_calls: { name: string; isError: boolean }[];
   created_at: Date;
 }
 
@@ -123,6 +134,13 @@ export const toAssistant = (r: AssistantRow): Assistant => ({
   disclaimer: r.disclaimer,
   sourceIds: r.source_ids,
   groundedOnly: r.grounded_only,
+  actionIds: r.action_ids,
+  handoff: r.handoff,
+  followUps: r.follow_ups,
+  queryRewrite: r.query_rewrite,
+  agenticSearch: r.agentic_search,
+  clientTools: r.client_tools,
+  redactPii: r.redact_pii,
   version: r.version,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
@@ -144,6 +162,7 @@ export const toWidget = (r: WidgetRow): Widget => ({
 export const toConversation = (r: ConversationRow): Conversation => ({
   id: r.id,
   title: r.title,
+  handoffRequestedAt: isoOrNull(r.handoff_at),
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
@@ -156,6 +175,7 @@ export const toMessage = (r: MessageRow): Message => ({
   citations: r.citations,
   status: r.status,
   feedback: r.feedback,
+  ...(r.role === "assistant" ? { suggestions: r.suggestions ?? [] } : {}),
   createdAt: iso(r.created_at),
 });
 
@@ -182,18 +202,42 @@ export async function createTenant(sql: Tx, name: string): Promise<string> {
   return id;
 }
 
-export async function insertAdminKey(sql: Tx, tenantId: string, name: string, hash: Buffer, prefix: string) {
+export async function insertAdminKey(
+  sql: Tx,
+  tenantId: string,
+  name: string,
+  hash: Buffer,
+  prefix: string,
+  scopes: string[] = ["admin"],
+  access: string[] = ["public"],
+) {
   const id = newId("key");
-  await sql`INSERT INTO admin_keys (id, tenant_id, name, key_hash, prefix) VALUES (${id}, ${tenantId}, ${name}, ${hash}, ${prefix})`;
+  await sql`INSERT INTO admin_keys (id, tenant_id, name, key_hash, prefix, scopes, access)
+            VALUES (${id}, ${tenantId}, ${name}, ${hash}, ${prefix}, ${sql.array(scopes)}, ${sql.array(access)})`;
   return id;
 }
 
-export async function findAdminKey(sql: Tx, hash: Buffer): Promise<{ id: string; tenant_id: string } | null> {
-  const rows = await sql<{ id: string; tenant_id: string }[]>`
-    UPDATE admin_keys SET last_used_at = now()
-    WHERE key_hash = ${hash} AND revoked_at IS NULL
-    RETURNING id, tenant_id`;
-  return rows[0] ?? null;
+export interface KeyRow {
+  id: string;
+  tenant_id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  access: string[];
+  created_at: Date;
+  last_used_at: Date | null;
+}
+
+export async function findAdminKey(sql: Tx, hash: Buffer): Promise<KeyRow | null> {
+  // last_used_at is refreshed at most once a minute to avoid a write per request.
+  const rows = await sql<KeyRow[]>`
+    SELECT id, tenant_id, name, prefix, scopes, access, created_at, last_used_at FROM admin_keys
+    WHERE key_hash = ${hash} AND revoked_at IS NULL`;
+  const row = rows[0];
+  if (row && (!row.last_used_at || Date.now() - row.last_used_at.getTime() > 60_000)) {
+    await sql`UPDATE admin_keys SET last_used_at = now() WHERE id = ${row.id}`;
+  }
+  return row ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,10 +257,13 @@ export async function createAssistant(sql: Tx, tenantId: string, input: Assistan
   const id = newId("ast");
   const rows = await sql<AssistantRow[]>`
     INSERT INTO assistants (id, tenant_id, name, instructions, model_alias, greeting, suggestions,
-                            placeholder, disclaimer, source_ids, grounded_only)
+                            placeholder, disclaimer, source_ids, grounded_only, action_ids, handoff,
+                            follow_ups, query_rewrite, agentic_search, client_tools, redact_pii)
     VALUES (${id}, ${tenantId}, ${input.name}, ${input.instructions}, ${input.modelAlias}, ${input.greeting},
             ${sql.json(input.suggestions)}, ${input.placeholder}, ${input.disclaimer},
-            ${sql.array(input.sourceIds)}, ${input.groundedOnly})
+            ${sql.array(input.sourceIds)}, ${input.groundedOnly}, ${sql.array(input.actionIds)},
+            ${sql.json(input.handoff as never)}, ${input.followUps}, ${input.queryRewrite}, ${input.agenticSearch},
+            ${input.clientTools}, ${input.redactPii})
     RETURNING *`;
   return rows[0]!;
 }
@@ -239,6 +286,13 @@ export async function updateAssistant(
     disclaimer: patch.disclaimer !== undefined ? patch.disclaimer : current.disclaimer,
     sourceIds: patch.sourceIds ?? current.source_ids,
     groundedOnly: patch.groundedOnly ?? current.grounded_only,
+    actionIds: patch.actionIds ?? current.action_ids,
+    handoff: patch.handoff ?? current.handoff,
+    followUps: patch.followUps ?? current.follow_ups,
+    queryRewrite: patch.queryRewrite ?? current.query_rewrite,
+    agenticSearch: patch.agenticSearch ?? current.agentic_search,
+    clientTools: patch.clientTools ?? current.client_tools,
+    redactPii: patch.redactPii ?? current.redact_pii,
   };
   const rows = await sql<AssistantRow[]>`
     UPDATE assistants SET
@@ -246,6 +300,9 @@ export async function updateAssistant(
       greeting = ${next.greeting}, suggestions = ${sql.json(next.suggestions)},
       placeholder = ${next.placeholder}, disclaimer = ${next.disclaimer},
       source_ids = ${sql.array(next.sourceIds)}, grounded_only = ${next.groundedOnly},
+      action_ids = ${sql.array(next.actionIds)}, handoff = ${sql.json(next.handoff as never)},
+      follow_ups = ${next.followUps}, query_rewrite = ${next.queryRewrite}, agentic_search = ${next.agenticSearch},
+      client_tools = ${next.clientTools}, redact_pii = ${next.redactPii},
       version = version + 1, updated_at = now()
     WHERE tenant_id = ${tenantId} AND id = ${id}
     RETURNING *`;
@@ -375,11 +432,12 @@ export async function listOwnedConversations(
     LIMIT ${limit}`;
 }
 
-export async function softDeleteConversation(sql: Tx, owner: Owner, id: string): Promise<boolean> {
+/** Visitors' deletions are permanent (messages, runs and events cascade). */
+export async function deleteOwnedConversation(sql: Tx, owner: Owner, id: string): Promise<boolean> {
   const rows = await sql`
-    UPDATE conversations SET deleted_at = now()
+    DELETE FROM conversations
     WHERE id = ${id} AND tenant_id = ${owner.tenantId} AND widget_id = ${owner.widgetId}
-      AND subject_id = ${owner.subjectId} AND deleted_at IS NULL
+      AND subject_id = ${owner.subjectId}
     RETURNING id`;
   return rows.length > 0;
 }
@@ -475,6 +533,7 @@ export async function adminListConversations(
     subjectKind: r.subject_kind,
     title: r.title,
     messageCount: Number(r.message_count),
+    handoffRequestedAt: isoOrNull(r.handoff_at),
     createdAt: iso(r.created_at),
     updatedAt: iso(r.updated_at),
   }));

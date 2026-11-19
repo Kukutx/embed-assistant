@@ -56,7 +56,9 @@ export const metrics = {
   ttft: new Histogram("ea_time_to_first_token_ms", "Time from run start to first text token", [100, 250, 500, 1000, 2000, 4000, 8000, 16000]),
   duration: new Histogram("ea_run_duration_ms", "Run duration", [500, 1000, 2000, 5000, 10000, 30000, 60000, 120000]),
   http: new Counter("ea_http_requests_total", "HTTP requests by route and status"),
+  tools: new Counter("ea_tool_calls_total", "Server-side tool calls by tool and status"),
+  webhooks: new Counter("ea_webhook_deliveries_total", "Webhook delivery attempts by status"),
   render(): string {
-    return [this.runs, this.failovers, this.tokens, this.ttft, this.duration, this.http].map((m) => m.render()).join("\n\n") + "\n";
+    return [this.runs, this.failovers, this.tokens, this.ttft, this.duration, this.http, this.tools, this.webhooks].map((m) => m.render()).join("\n\n") + "\n";
   },
 };

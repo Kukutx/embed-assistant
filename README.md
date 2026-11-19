@@ -9,6 +9,10 @@ It is built to be generic and boring to operate:
 - **Grounded answers with citations.** Crawl a website or sitemap, or push documents from any system over HTTP. Hybrid search (multilingual keyword search, plus vectors when you configure embeddings).
 - **Knows who is asking, safely.** Your backend signs a short JWT; the assistant only searches knowledge that user may read. Filtering happens in SQL before the model sees anything.
 - **One dependency.** Node.js and Postgres (with pgvector). No Redis, no queue service. Multi-instance safe.
+- **Takes actions, not just answers.** Call your HTTP APIs as tools (signed requests, optional visitor confirmation), run functions in the visitor's page (`EmbedAssistant.registerTool`), and hand the conversation to a person with a summary. See [docs/tools.md](docs/tools.md).
+- **Fits into your systems.** [Standard Webhooks](https://www.standardwebhooks.com/) for conversations, answers, feedback, handoffs and syncs; scoped API keys; NDJSON export.
+- **Learns where it falls short.** Insights show top questions, knowledge gaps, unhelpful answers, handoffs and tool usage, so you know which docs to write next.
+- **Privacy built in.** Optional masking of e-mails, phone, card and IBAN numbers before storage, retention policies, and per-visitor erasure.
 - **Open protocol.** Versioned HTTP + Server-Sent Events API with an OpenAPI document. Build your own UI, bot or integration in any language.
 
 > Status: 1.0. The `/v1` API only ever adds fields. See [CHANGELOG](CHANGELOG.md).
@@ -35,7 +39,7 @@ It works without any API key (offline quoting mode). Add `ANTHROPIC_API_KEY` or 
 <script src="https://assistant.example.com/widget/loader.js" data-widget-id="wgt_…" async></script>
 ```
 
-Add your site's origin (for example `https://www.example.com`) to the widget's *allowed websites* in the console. The loader is about 5 KB; the chat UI (about 16 KB gzipped) loads on first use.
+Add your site's origin (for example `https://www.example.com`) to the widget's *allowed websites* in the console. The loader is about 5 KB; the chat UI (about 20 KB gzipped) loads on first use.
 
 | Attribute | Meaning |
 |---|---|
@@ -56,6 +60,14 @@ EmbedAssistant.ask("How do I export my data?");
 EmbedAssistant.setContext({ attributes: { plan: "pro", page: "billing" } });
 EmbedAssistant.identify(async () => (await fetch("/api/assistant-token")).text());
 EmbedAssistant.on("message", (m) => analytics.track("assistant_answer", m));
+EmbedAssistant.on("handoff", ({ conversationId }) => openSupportChat(conversationId));
+
+// Let the assistant use something only the page knows or can do.
+EmbedAssistant.registerTool({
+  name: "get_cart",
+  description: "Items in the visitor's shopping cart.",
+  handler: async () => store.cart.items(),
+});
 ```
 
 Single-page apps (React, Vue, Svelte, Angular…) can set `window.EmbedAssistantConfig = { widgetId: "wgt_…" }` and inject the script once. See [examples/](examples/).
@@ -76,6 +88,15 @@ Anonymous visitors only see knowledge tagged `public`. To recognise a user, your
 - **Push**: `PUT /v1/admin/sources/{id}/documents` with `{ title, content, url?, externalId? }` from a CMS, ticketing system, docs build or script. Unchanged content is a no-op.
 - **Access tags** on each source decide who can get answers from it.
 
+## Tools and handoff
+
+- **HTTP actions**: describe an endpoint once (method, URL template, JSON Schema for its arguments, secret headers) and attach it to assistants. Requests are signed with HMAC so your API can verify them; signed-in users are forwarded; risky actions ask the visitor first.
+- **Page tools**: functions registered by the host page that run in the visitor's browser.
+- **Agentic search**: the model can search the knowledge base again with better queries before answering.
+- **Human handoff**: a "talk to a person" button and a model tool. Sends the transcript and a summary to your help desk via webhook and/or opens your own support URL.
+
+Full guide with verification code: [docs/tools.md](docs/tools.md).
+
 ## Models
 
 With environment variables only, aliases are built for you (`standard`, `fast`, `private`), each ending with the offline mode. For full control, point `MODELS_CONFIG` at a JSON file like [config/models.example.json](config/models.example.json). Failover happens only before the first token, so an answer never mixes two models. Details: [docs/configuration.md](docs/configuration.md).
@@ -83,7 +104,7 @@ With environment variables only, aliases are built for you (`standard`, `fast`, 
 ## API
 
 - Public chat API: sessions, conversations, runs, SSE events with `Last-Event-ID` resume, cancel, feedback.
-- Admin API: assistants, widgets, knowledge, conversations, usage, models.
+- Admin API: assistants, widgets, knowledge, actions, webhooks, conversations (+ export, erasure), insights, usage, models, API keys, settings.
 - Machine-readable: `GET /openapi.json`. Overview: [docs/api.md](docs/api.md).
 
 ## Architecture
@@ -122,7 +143,7 @@ apps/server         API server, admin console (static/), migrations
 
 ## Security
 
-Origin allowlist per widget, short-lived session tokens, HS256 user tokens with a capped lifetime, secrets encrypted at rest (AES-256-GCM), admin keys stored as hashes, rate limits and daily token budgets, prompt-injection hardening for retrieved text, safe Markdown rendering (no `innerHTML` of model output), SSRF protection for crawling. See [SECURITY.md](SECURITY.md) and [docs/security.md](docs/security.md).
+Origin allowlist per widget, signed tool requests and webhooks, tool arguments validated against JSON Schema, confirmation for risky actions, optional PII masking, retention and erasure, short-lived session tokens, HS256 user tokens with a capped lifetime, secrets encrypted at rest (AES-256-GCM), admin keys stored as hashes, rate limits and daily token budgets, prompt-injection hardening for retrieved text, safe Markdown rendering (no `innerHTML` of model output), SSRF protection for crawling. See [SECURITY.md](SECURITY.md) and [docs/security.md](docs/security.md).
 
 ## Versioning
 

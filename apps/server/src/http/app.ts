@@ -8,6 +8,7 @@ import { ApiError } from "../lib/errors.js";
 import type { AppEnv, Services } from "./env.js";
 import { adminAuth, publicCors, requestContext, sessionAuth, WidgetCache } from "./middleware.js";
 import { adminRoutes } from "./routes/admin.js";
+import { adminAgentRoutes } from "./routes/adminAgent.js";
 import { chatRoutes } from "./routes/chat.js";
 import { opsRoutes } from "./routes/ops.js";
 import { publicRoutes } from "./routes/public.js";
@@ -73,6 +74,7 @@ export function createApp(s: Services): Hono<AppEnv> {
   publicRoutes(app, s, widgets);
   chatRoutes(app, s);
   adminRoutes(app, s, widgets);
+  adminAgentRoutes(app, s);
 
   if (s.cfg.SERVE_WIDGET) {
     const widgetDir = resolveWidgetDir(s.cfg.WIDGET_DIST_DIR);

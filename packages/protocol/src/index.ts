@@ -10,6 +10,7 @@
  * Clients must ignore unknown fields and unknown event types.
  */
 import { z } from "zod";
+import { ToolName, ToolParameters } from "./tools.js";
 
 export const PROTOCOL_VERSION = "1";
 export const API_PREFIX = "/v1";
@@ -81,6 +82,15 @@ export const PublicWidgetConfig = z.object({
     sources: z.boolean(),
     history: z.boolean(),
   }),
+  /** Human handoff ("talk to a person"). Absent on servers older than 1.0.1. */
+  handoff: z
+    .object({
+      enabled: z.boolean(),
+      /** Optional contact page shown with the handoff message. */
+      url: z.string().nullable(),
+      label: z.string().nullable(),
+    })
+    .optional(),
   protocolVersion: z.literal(PROTOCOL_VERSION),
 });
 export type PublicWidgetConfig = z.infer<typeof PublicWidgetConfig>;
@@ -152,6 +162,8 @@ export const Message = z.object({
   citations: z.array(Citation),
   status: MessageStatus,
   feedback: Feedback.nullable(),
+  /** Suggested follow-up questions for an assistant answer (may arrive later via `message.suggestions`). */
+  suggestions: z.array(z.string()).optional(),
   createdAt: Timestamp,
 });
 export type Message = z.infer<typeof Message>;
@@ -159,6 +171,8 @@ export type Message = z.infer<typeof Message>;
 export const Conversation = z.object({
   id: Id,
   title: z.string().nullable(),
+  /** Set once a human handoff was requested in this conversation. */
+  handoffRequestedAt: Timestamp.nullable().optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });
@@ -194,9 +208,23 @@ export const PageContext = z
   });
 export type PageContext = z.infer<typeof PageContext>;
 
+/**
+ * A tool implemented by the HOST PAGE (registered with `EmbedAssistant.registerTool`).
+ * The model may call it; the widget runs the handler in the visitor's browser and
+ * posts the result to POST /v1/runs/{id}/tool-results.
+ */
+export const ClientToolDef = z.object({
+  name: ToolName,
+  description: z.string().min(1).max(1024),
+  parameters: ToolParameters.default({ type: "object", properties: {} }),
+});
+export type ClientToolDef = z.infer<typeof ClientToolDef>;
+
 export const CreateRunRequest = z.object({
   content: z.string().trim().min(1).max(4000),
   context: PageContext.optional(),
+  /** Tools the host page offers for this question (ignored unless the assistant allows page tools). */
+  clientTools: z.array(ClientToolDef).max(20).optional(),
   /** Client-generated key; resubmitting the same key returns the same run. */
   idempotencyKey: z
     .string()
@@ -221,6 +249,32 @@ export const CreateRunResponse = z.object({
   userMessage: Message,
 });
 export type CreateRunResponse = z.infer<typeof CreateRunResponse>;
+
+/** Answer to a `tool.input_required` event. */
+export const ToolResultRequest = z.object({
+  callId: Id,
+  /** For `kind: "confirmation"`: whether the visitor allowed the action. */
+  approved: z.boolean().optional(),
+  /** For `kind: "client"`: the handler's return value (string or JSON). */
+  output: z.unknown().optional(),
+  /** For `kind: "client"`: true when the handler failed; `output` then describes the error. */
+  isError: z.boolean().optional(),
+});
+export type ToolResultRequest = z.infer<typeof ToolResultRequest>;
+
+export const HandoffRequest = z.object({
+  /** Why the visitor wants a person (optional, free text). */
+  reason: z.string().max(1000).optional(),
+});
+export type HandoffRequest = z.infer<typeof HandoffRequest>;
+
+export const HandoffResult = z.object({
+  /** Text to show the visitor (configured per assistant). */
+  message: z.string(),
+  url: z.string().nullable(),
+  requestedAt: Timestamp,
+});
+export type HandoffResult = z.infer<typeof HandoffResult>;
 
 export const FeedbackRequest = z.object({
   rating: Feedback,
@@ -277,6 +331,46 @@ export const RunEvent = z.discriminatedUnion("type", [
     data: z.object({ code: z.string(), message: z.string() }),
   }),
   z.object({ ...base, type: z.literal("run.cancelled"), data: z.object({}) }),
+  /** A tool started running (server-side). `title` is a human-readable label. */
+  z.object({
+    ...base,
+    type: z.literal("tool.started"),
+    data: z.object({ callId: Id, name: z.string(), title: z.string() }),
+  }),
+  /**
+   * The run is waiting for the widget: run a page tool (`kind: "client"`) or ask
+   * the visitor to approve an action (`kind: "confirmation"`). Answer with
+   * POST /v1/runs/{id}/tool-results. Unanswered requests time out.
+   */
+  z.object({
+    ...base,
+    type: z.literal("tool.input_required"),
+    data: z.object({
+      callId: Id,
+      name: z.string(),
+      title: z.string(),
+      kind: z.enum(["client", "confirmation"]),
+      input: z.record(z.string(), z.unknown()),
+      timeoutMs: z.number().int(),
+    }),
+  }),
+  z.object({
+    ...base,
+    type: z.literal("tool.completed"),
+    data: z.object({ callId: Id, name: z.string(), isError: z.boolean() }),
+  }),
+  /** Suggested follow-up questions for a completed answer. */
+  z.object({
+    ...base,
+    type: z.literal("message.suggestions"),
+    data: z.object({ messageId: Id, suggestions: z.array(z.string()) }),
+  }),
+  /** The assistant handed the conversation to a human. */
+  z.object({
+    ...base,
+    type: z.literal("handoff.requested"),
+    data: z.object({ message: z.string(), url: z.string().nullable() }),
+  }),
 ]);
 export type RunEvent = z.infer<typeof RunEvent>;
 export type RunEventType = RunEvent["type"];
@@ -312,3 +406,4 @@ export const ACCESS_PUBLIC = "public";
 export const ACCESS_USERS = "users";
 
 export * from "./admin.js";
+export * from "./tools.js";

@@ -8,6 +8,8 @@ export interface SessionClaims {
   subjectId: string;
   subjectKind: "anonymous" | "user";
   subjectName: string | null;
+  /** E-mail from the host's user token (forwarded to actions that require a user). */
+  subjectEmail?: string | null;
   /** Knowledge access tags this session may read. */
   access: string[];
 }
@@ -31,6 +33,7 @@ export class SessionSigner {
       aid: claims.assistantId,
       knd: claims.subjectKind,
       nam: claims.subjectName,
+      ...(claims.subjectEmail ? { eml: claims.subjectEmail } : {}),
       acc: claims.access,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
@@ -68,6 +71,7 @@ export class SessionSigner {
         subjectId: p.sub,
         subjectKind: p.knd,
         subjectName: typeof p.nam === "string" ? p.nam : null,
+        subjectEmail: typeof p.eml === "string" ? p.eml : null,
         access: p.acc.filter((x): x is string => typeof x === "string"),
       };
     } catch (err) {

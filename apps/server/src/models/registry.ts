@@ -155,22 +155,68 @@ export class ModelRegistry {
     }));
   }
 
+  /** The deployment that would serve the alias first, or null. */
+  firstAvailable(alias: string): ChatModel | null {
+    const ids = this.file.aliases[alias] ?? this.file.aliases.standard ?? [];
+    for (const id of ids) {
+      const d = this.deployments.get(id);
+      if (d?.available()) return d;
+    }
+    return null;
+  }
+
+  /** True when the alias is served by a real language model (not the offline quoting mode). */
+  hasLanguageModel(alias: string): boolean {
+    const d = this.firstAvailable(alias);
+    return !!d && d.provider !== "builtin";
+  }
+
+  /**
+   * Small non-streaming helper for auxiliary tasks (query rewriting, suggestions,
+   * summaries). Returns null when no language model serves the alias or the call fails.
+   */
+  async complete(
+    alias: string,
+    p: { system: string; prompt: string; maxOutputTokens?: number; timeoutMs?: number; signal?: AbortSignal },
+  ): Promise<string | null> {
+    if (!this.hasLanguageModel(alias)) return null;
+    const signal = AbortSignal.any([AbortSignal.timeout(p.timeoutMs ?? 8000), ...(p.signal ? [p.signal] : [])]);
+    let text = "";
+    try {
+      for await (const { chunk } of this.stream(alias, {
+        system: p.system,
+        messages: [{ role: "user", content: p.prompt }],
+        question: p.prompt,
+        sources: [],
+        maxOutputTokens: p.maxOutputTokens ?? 400,
+        signal,
+      }, { languageOnly: true })) {
+        if (chunk.type === "text") text += chunk.text;
+      }
+      return text.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Stream from the first available deployment of the alias. On a retryable
    * error BEFORE any text was produced, fail over to the next deployment.
    * After text has streamed we never splice another model's answer in.
    */
-  async *stream(alias: string, req: ChatRequest): AsyncGenerator<RoutedChunk> {
+  async *stream(alias: string, req: ChatRequest, opts: { languageOnly?: boolean } = {}): AsyncGenerator<RoutedChunk> {
     const ids = this.file.aliases[alias] ?? this.file.aliases.standard;
     if (!ids) throw new ModelError(`unknown model alias ${alias}`, false);
-    const candidates = ids.map((id) => this.deployments.get(id)!).filter((d) => d.available());
+    const candidates = ids
+      .map((id) => this.deployments.get(id)!)
+      .filter((d) => d.available() && !(opts.languageOnly && d.provider === "builtin"));
     if (candidates.length === 0) throw new ModelError(`no available deployment for alias ${alias}`, false);
     let lastErr: ModelError | null = null;
     for (const d of candidates) {
       let emitted = false;
       try {
         for await (const chunk of d.stream(req)) {
-          if (chunk.type === "text") emitted = true;
+          if (chunk.type === "text" || chunk.type === "tool_call") emitted = true;
           yield { deploymentId: d.id, chunk };
         }
         return;

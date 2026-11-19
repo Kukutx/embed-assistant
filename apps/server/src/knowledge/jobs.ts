@@ -3,7 +3,7 @@ import type { Logger } from "pino";
 import type { Sql } from "../db/pool.js";
 import { newId } from "../lib/ids.js";
 
-export type JobType = "ingest_source";
+export type JobType = "ingest_source" | "deliver_webhook";
 export interface JobRow {
   id: string;
   tenant_id: string;
@@ -12,7 +12,8 @@ export interface JobRow {
   attempts: number;
 }
 
-const MAX_ATTEMPTS = 3;
+/** Webhooks retry for about 4 hours (30s, 1m, 2m ... 64m); ingestion three times. */
+const MAX_ATTEMPTS: Record<JobType, number> = { ingest_source: 3, deliver_webhook: 9 };
 const STALE_AFTER = "15 minutes";
 
 export async function enqueueJob(sql: Sql, tenantId: string, type: JobType, payload: Record<string, unknown>): Promise<string> {
@@ -66,11 +67,11 @@ export class JobWorker {
       await this.sql`UPDATE jobs SET status = 'succeeded', last_error = NULL, updated_at = now() WHERE id = ${job.id}`;
     } catch (err) {
       const message = (err as Error).message?.slice(0, 1000) ?? String(err);
-      const final = job.attempts >= MAX_ATTEMPTS;
+      const final = job.attempts >= (MAX_ATTEMPTS[job.type] ?? 3);
       this.log.warn({ job: job.id, type: job.type, attempt: job.attempts, err: message }, "job failed");
       await this.sql`
         UPDATE jobs SET status = ${final ? "failed" : "queued"}, last_error = ${message}, locked_at = NULL,
-          run_after = now() + (${30 * 2 ** job.attempts} || ' seconds')::interval, updated_at = now()
+          run_after = now() + (${Math.min(3600, 15 * 2 ** job.attempts)} || ' seconds')::interval, updated_at = now()
         WHERE id = ${job.id}`;
     }
     return true;

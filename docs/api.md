@@ -23,13 +23,18 @@ data: {"seq":4,"runId":"run_…","type":"message.delta","ts":"…","data":{"mess
 | `message.started` | `{ messageId }` |
 | `message.delta` | `{ messageId, text }` |
 | `message.completed` | `{ message }` (final text and the citations it actually uses) |
+| `tool.started` | `{ callId, name, title }` |
+| `tool.input_required` | `{ callId, name, title, kind: "client" \| "confirmation", input, timeoutMs }`: answer with `POST /v1/runs/{id}/tool-results` |
+| `tool.completed` | `{ callId, name, isError }` |
+| `handoff.requested` | `{ message, url }` |
+| `message.suggestions` | `{ messageId, suggestions }` (follow-up questions) |
 | `run.completed` | `{ usage }` |
 | `run.failed` | `{ code, message }` (message is safe to show) |
 | `run.cancelled` | `{}` |
 
 Reconnect with `Last-Event-ID: <seq>` (or `?after=<seq>`) to continue exactly where you left off. Events are stored, so any server instance can serve the stream. Clients must ignore unknown event types and fields.
 
-Other endpoints: `GET /v1/conversations`, `GET/DELETE /v1/conversations/{id}`, `GET /v1/conversations/{id}/messages`, `GET /v1/runs/{id}`, `POST /v1/runs/{id}/cancel`, `POST /v1/messages/{id}/feedback`.
+Other endpoints: `GET /v1/conversations`, `GET/DELETE /v1/conversations/{id}`, `GET /v1/conversations/{id}/messages`, `GET /v1/runs/{id}`, `POST /v1/runs/{id}/cancel`, `POST /v1/messages/{id}/feedback`, `POST /v1/runs/{id}/tool-results`, `POST /v1/conversations/{id}/handoff`. `DELETE /v1/conversations/{id}` deletes permanently. Tools and handoff are described in [tools.md](tools.md).
 
 Rules:
 
@@ -39,7 +44,20 @@ Rules:
 
 ## Admin API
 
-`Authorization: Bearer ea_admin_…` (create keys with `seed.js --new-admin-key`). Resources: `/v1/admin/assistants`, `/widgets` (+ `/rotate-secret`, `/snippet`), `/sources` (+ `/sync`, `/documents`), `/conversations`, `/models`, `/usage`. Admin endpoints have no CORS: call them from your backend or the bundled console.
+`Authorization: Bearer ea_admin_…` (create the first key with `seed.js --new-admin-key`, more in the console under *Settings*). Resources:
+
+| Path | |
+|---|---|
+| `/v1/admin/assistants`, `/widgets` (+ `/rotate-secret`, `/snippet`) | Configuration |
+| `/v1/admin/sources` (+ `/sync`, `/documents`) | Knowledge |
+| `/v1/admin/actions` (+ `/test`) | HTTP tools |
+| `/v1/admin/webhooks` (+ `/test`, `/rotate-secret`, `/deliveries`) | Webhooks |
+| `/v1/admin/conversations` (+ `DELETE`, `/export?days=` as NDJSON) | Transcripts |
+| `/v1/admin/subjects/{subjectId}` (`DELETE`) | Erase everything about one visitor |
+| `/v1/admin/insights?days=`, `/usage`, `/models` | Analytics |
+| `/v1/admin/keys`, `/settings` | API keys, retention and budget |
+
+Keys have a scope: `admin` keys (`ea_admin_…`) can use the whole admin API; `mcp` keys (`ea_mcp_…`) are for integrations that only read knowledge and get `401` here. Admin endpoints have no CORS: call them from your backend or the bundled console.
 
 ## Compatibility
 

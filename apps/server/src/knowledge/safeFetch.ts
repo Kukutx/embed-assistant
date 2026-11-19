@@ -59,6 +59,10 @@ export interface SafeFetchOptions {
   timeoutMs?: number;
   maxRedirects?: number;
   accept?: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  userAgent?: string;
 }
 
 export interface FetchedDocument {
@@ -97,7 +101,10 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
   const agent = agents.get(opts.allowPrivate) ?? makeAgent(opts.allowPrivate);
   agents.set(opts.allowPrivate, agent);
   let url = new URL(rawUrl);
-  for (let hop = 0; hop <= (opts.maxRedirects ?? 5); hop++) {
+  const method = (opts.method ?? "GET").toUpperCase();
+  // Only safe methods follow redirects (a redirected POST could replay a side effect elsewhere).
+  const maxRedirects = method === "GET" || method === "HEAD" ? (opts.maxRedirects ?? 5) : 0;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new FetchBlockedError(`unsupported protocol ${url.protocol}`);
     if (url.username || url.password) throw new FetchBlockedError("credentials in URL are not allowed");
     if (!opts.allowPrivate && isIP(url.hostname.replace(/^\[|\]$/g, "")) && isPrivateAddress(url.hostname.replace(/^\[|\]$/g, ""))) {
@@ -106,10 +113,16 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
     const res = await undiciFetch(url, {
       dispatcher: agent,
       redirect: "manual",
+      method,
       signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
-      headers: { "user-agent": USER_AGENT, accept: opts.accept ?? "text/html,application/xhtml+xml,text/plain,text/markdown;q=0.9,*/*;q=0.5" },
+      headers: {
+        ...opts.headers,
+        "user-agent": opts.userAgent ?? USER_AGENT,
+        accept: opts.accept ?? "text/html,application/xhtml+xml,text/plain,text/markdown;q=0.9,*/*;q=0.5",
+      },
+      ...(opts.body !== undefined ? { body: opts.body } : {}),
     });
-    if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+    if (hop < maxRedirects && res.status >= 300 && res.status < 400 && res.headers.get("location")) {
       await res.body?.cancel();
       url = new URL(res.headers.get("location")!, url);
       continue;
@@ -136,4 +149,16 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions): Promise
     };
   }
   throw new FetchBlockedError("too many redirects");
+}
+
+/** Whether an http(s) URL points at a private network (by literal IP or localhost name). */
+export function isObviouslyPrivateUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    if (host === "localhost" || host.endsWith(".localhost")) return true;
+    return isIP(host) !== 0 && isPrivateAddress(host);
+  } catch {
+    return true;
+  }
 }

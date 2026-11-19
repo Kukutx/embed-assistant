@@ -2,7 +2,7 @@
  * The chat UI, loaded lazily by loader.ts. Plain DOM + Shadow DOM: no framework,
  * so it works on any page and never conflicts with the host's own libraries.
  */
-import type { Citation, Message, PageContext, PublicWidgetConfig, RunEvent } from "@embed-assistant/protocol";
+import type { Citation, ClientToolDef, Message, PageContext, PublicWidgetConfig, RunEvent } from "@embed-assistant/protocol";
 import { ApiError, Client } from "./client.js";
 import { stringsFor, type Strings } from "./i18n.js";
 import { plainText, renderMarkdown, safeUrl } from "./markdown.js";
@@ -27,6 +27,10 @@ const I = {
   down: svg('<path d="M17 14V2M9 18.1 10 14H4.2a2 2 0 0 1-2-2.3l1.4-8A2 2 0 0 1 5.6 2H17v12l-4 8a3 3 0 0 1-4-3.9z"/>', 16),
   trash: svg('<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>', 16),
   arrow: svg('<path d="M5 12h14M13 6l6 6-6 6"/>', 16),
+  person: svg('<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/>'),
+  tool: svg('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>', 13),
+  ok: svg('<path d="M20 6L9 17l-5-5"/>', 13),
+  x: svg('<path d="M18 6L6 18M6 6l12 12"/>', 13),
   spark: svg('<path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/>', 15),
 };
 
@@ -47,10 +51,17 @@ function h<K extends keyof HTMLElementTagNameMap>(
   return e;
 }
 
+interface ToolChip {
+  callId: string;
+  title: string;
+  state: "running" | "waiting" | "done" | "error" | "declined";
+}
+
 interface ViewMessage {
   key: string;
   id: string | null;
-  role: "user" | "assistant";
+  /** "notice": a local status line, e.g. after asking for a person. */
+  role: "user" | "assistant" | "notice";
   content: string;
   citations: Citation[];
   status: Message["status"];
@@ -59,7 +70,13 @@ interface ViewMessage {
   error: string | null;
   /** user text to resend when retrying a failed answer */
   retryText?: string;
+  suggestions: string[];
+  tools: ToolChip[];
+  confirm: { runId: string; callId: string; title: string; input: Record<string, unknown>; busy: boolean } | null;
+  handoff: { message: string; url: string | null } | null;
 }
+
+const blank = (): Pick<ViewMessage, "suggestions" | "tools" | "confirm" | "handoff"> => ({ suggestions: [], tools: [], confirm: null, handoff: null });
 
 let keySeq = 0;
 const newKey = () => `m${++keySeq}`;
@@ -105,6 +122,7 @@ class App {
   private footer!: HTMLDivElement;
   private backBtn!: HTMLButtonElement;
   private historyBtn!: HTMLButtonElement;
+  private handoffBtn!: HTMLButtonElement;
   private newBtn!: HTMLButtonElement;
   private expandBtn!: HTMLButtonElement;
   private live!: HTMLDivElement;
@@ -216,6 +234,7 @@ class App {
     this.titleText = h("span", { text: "" });
     this.backBtn = h("button", { class: "ea-icon-btn", type: "button", html: I.back, hidden: true });
     this.historyBtn = h("button", { class: "ea-icon-btn", type: "button", html: I.history });
+    this.handoffBtn = h("button", { class: "ea-icon-btn", type: "button", html: I.person, hidden: true });
     this.newBtn = h("button", { class: "ea-icon-btn", type: "button", html: I.plus });
     this.expandBtn = h("button", { class: "ea-icon-btn ea-expand", type: "button", html: I.expand });
     const closeBtn = h("button", { class: "ea-icon-btn", type: "button", html: I.close });
@@ -236,6 +255,7 @@ class App {
         { class: "ea-header" },
         this.backBtn,
         h("div", { class: "ea-title" }, h("div", { class: "ea-avatar", html: I.spark }), this.titleText),
+        this.handoffBtn,
         this.historyBtn,
         this.newBtn,
         this.expandBtn,
@@ -251,6 +271,7 @@ class App {
     closeBtn.addEventListener("click", () => this.close());
     this.newBtn.addEventListener("click", () => this.newChat());
     this.historyBtn.addEventListener("click", () => void this.showHistory());
+    this.handoffBtn.addEventListener("click", () => void this.requestHandoff());
     this.backBtn.addEventListener("click", () => this.showChat());
     this.expandBtn.addEventListener("click", () => {
       this.expanded = !this.expanded;
@@ -306,6 +327,7 @@ class App {
     this.disclaimer.textContent = cfg?.assistant.disclaimer ?? "";
     this.disclaimer.hidden = !cfg?.assistant.disclaimer;
     this.historyBtn.hidden = cfg ? !cfg.features.history : true;
+    this.handoffBtn.hidden = !cfg?.handoff?.enabled;
     this.panel.lang = this.lang;
     this.applyTheme();
     this.applyLabels();
@@ -333,6 +355,7 @@ class App {
     };
     label(this.backBtn, t.back);
     label(this.historyBtn, t.history);
+    label(this.handoffBtn, this.cfg?.handoff?.label || t.talkToHuman);
     label(this.newBtn, t.newChat);
     label(this.expandBtn, this.expanded ? t.collapse : t.expand);
     this.expandBtn.innerHTML = this.expanded ? I.collapse : I.expand;
@@ -449,6 +472,8 @@ class App {
       feedback: m.feedback,
       phase: null,
       error: null,
+      ...blank(),
+      suggestions: m.suggestions ?? [],
     };
   }
 
@@ -487,9 +512,25 @@ class App {
       wrap.appendChild(h("div", { class: "ea-bubble", text: vm.content }));
       return;
     }
+    if (vm.role === "notice") {
+      if (vm.handoff) wrap.appendChild(this.handoffBox(vm.handoff));
+      return;
+    }
     const t = this.t;
     const streaming = vm.status === "streaming";
-    const content = h("div", { class: `ea-content${streaming && vm.content && !vm.phase ? " ea-caret" : ""}` });
+    if (vm.tools.length) {
+      const list = h("div", { class: "ea-tools" });
+      for (const tc of vm.tools) {
+        const icon =
+          tc.state === "running" ? h("span", { class: "ea-spin" }) : h("span", { html: tc.state === "error" || tc.state === "declined" ? I.x : tc.state === "waiting" ? I.tool : I.ok });
+        const label = tc.state === "declined" ? `${tc.title} · ${t.declined}` : tc.title;
+        list.appendChild(h("span", { class: `ea-tool${tc.state === "error" ? " ea-tool-error" : ""}` }, icon, h("span", { text: label })));
+      }
+      wrap.appendChild(list);
+    }
+    if (vm.confirm) wrap.appendChild(this.confirmCard(vm));
+    const busyTool = vm.tools.some((x) => x.state === "running" || x.state === "waiting");
+    const content = h("div", { class: `ea-content${streaming && vm.content && !vm.phase && !busyTool ? " ea-caret" : ""}` });
     if (vm.content) {
       const byIndex = new Map(vm.citations.map((c) => [c.index, c]));
       content.appendChild(
@@ -498,7 +539,7 @@ class App {
         }),
       );
     }
-    if (streaming && vm.phase) {
+    if (streaming && vm.phase && !busyTool) {
       content.appendChild(
         h("div", { class: "ea-status" }, h("span", { class: "ea-dots", html: "<i></i><i></i><i></i>" }), h("span", { text: vm.phase === "searching" ? t.searching : t.thinking })),
       );
@@ -535,7 +576,61 @@ class App {
       wrap.appendChild(list);
     }
 
+    if (vm.handoff) wrap.appendChild(this.handoffBox(vm.handoff));
     if (vm.status === "complete" && vm.content) wrap.appendChild(this.actions(vm));
+    if (vm.status === "complete" && vm.suggestions.length && !this.running && this.messages.at(-1) === vm) {
+      const box = h("div", { class: "ea-followups" }, h("div", { class: "ea-followups-label", text: t.related }));
+      for (const q of vm.suggestions) {
+        const b = h("button", { class: "ea-followup", type: "button", text: q });
+        b.addEventListener("click", () => void this.send(q));
+        box.appendChild(b);
+      }
+      wrap.appendChild(box);
+    }
+  }
+
+  private handoffBox(ho: { message: string; url: string | null }): HTMLElement {
+    const box = h("div", { class: "ea-handoff", role: "status" }, h("span", { text: ho.message }));
+    const href = ho.url ? safeUrl(ho.url) : null;
+    if (href) box.appendChild(h("a", { href, target: "_blank", rel: "noopener noreferrer", text: href.replace(/^https?:\/\//, "").replace(/\/$/, "") }));
+    return box;
+  }
+
+  private confirmCard(vm: ViewMessage): HTMLElement {
+    const c = vm.confirm!;
+    const t = this.t;
+    const dl = h("dl");
+    for (const [k, v] of Object.entries(c.input).slice(0, 10)) {
+      const text = typeof v === "string" ? v : JSON.stringify(v);
+      dl.append(h("dt", { text: k }), h("dd", { text: text.length > 200 ? `${text.slice(0, 200)}…` : text }));
+    }
+    const allow = h("button", { class: "ea-btn ea-btn-primary", type: "button", text: t.allow, disabled: c.busy });
+    const deny = h("button", { class: "ea-btn", type: "button", text: t.deny, disabled: c.busy });
+    const decide = async (approved: boolean) => {
+      c.busy = true;
+      this.update(vm);
+      try {
+        await this.client.toolResult(c.runId, { callId: c.callId, approved });
+        const chip = vm.tools.find((x) => x.callId === c.callId);
+        if (chip) chip.state = approved ? "running" : "declined";
+        vm.confirm = null;
+        this.announce(approved ? t.approved : t.declined);
+      } catch (err) {
+        c.busy = false;
+        this.showBanner(this.errorText(err));
+      }
+      this.update(vm);
+    };
+    allow.addEventListener("click", () => void decide(true));
+    deny.addEventListener("click", () => void decide(false));
+    return h(
+      "div",
+      { class: "ea-confirm", role: "group", "aria-label": t.approvalNeeded },
+      h("p", { text: t.approvalNeeded }),
+      h("b", { text: c.title }),
+      dl.childElementCount ? dl : null,
+      h("div", { class: "ea-confirm-row" }, allow, deny),
+    );
   }
 
   private citationChip(n: number, c: Citation | undefined, wrap: HTMLElement): Node | null {
@@ -622,7 +717,9 @@ class App {
   }
 
   private append(vm: ViewMessage) {
+    const prev = this.messages.at(-1);
     this.messages.push(vm);
+    if (prev?.suggestions.length) this.update(prev);
     if (this.view !== "chat") return;
     this.body.querySelector(".ea-welcome")?.remove();
     this.body.appendChild(this.messageEl(vm));
@@ -688,9 +785,9 @@ class App {
     if (this.running) return;
     if (this.view !== "chat") this.renderChat();
     const content = text.slice(0, 4000);
-    const user: ViewMessage = { key: newKey(), id: null, role: "user", content, citations: [], status: "complete", feedback: null, phase: null, error: null };
+    const user: ViewMessage = { key: newKey(), id: null, role: "user", content, citations: [], status: "complete", feedback: null, phase: null, error: null, ...blank() };
     if (!isRetry || this.messages.at(-1)?.content !== content) this.append(user);
-    const vm: ViewMessage = { key: newKey(), id: null, role: "assistant", content: "", citations: [], status: "streaming", feedback: null, phase: "searching", error: null };
+    const vm: ViewMessage = { key: newKey(), id: null, role: "assistant", content: "", citations: [], status: "streaming", feedback: null, phase: "searching", error: null, ...blank() };
     this.append(vm);
     const abort = new AbortController();
     this.running = { runId: null, abort, vm };
@@ -706,13 +803,18 @@ class App {
       const key = this.client.newIdempotencyKey();
       let created;
       try {
-        created = await this.client.createRun(conversationId, content, this.pageContext(), key);
+        created = await this.client.createRun(conversationId, content, this.pageContext(), key, this.toolDefs());
       } catch (err) {
         if (!(err instanceof ApiError && err.status === 404)) throw err;
         // Conversation was deleted elsewhere: start a new one transparently.
         conversationId = (await this.client.createConversation()).id;
         this.setConversation(conversationId);
-        created = await this.client.createRun(conversationId, content, this.pageContext(), key);
+        created = await this.client.createRun(conversationId, content, this.pageContext(), key, this.toolDefs());
+      }
+      if (created.userMessage.content !== user.content) {
+        // The server masked personal data: show what was actually stored.
+        user.content = created.userMessage.content;
+        this.update(user);
       }
       user.id = created.userMessage.id;
       this.running.runId = created.run.id;
@@ -764,9 +866,98 @@ class App {
       case "run.cancelled":
         vm.status = "cancelled";
         vm.phase = null;
+        vm.confirm = null;
+        break;
+      case "tool.started":
+        vm.tools.push({ callId: e.data.callId, title: e.data.title, state: "running" });
+        this.ctx.emit("tool", { name: e.data.name, title: e.data.title, state: "started" });
+        break;
+      case "tool.completed": {
+        const chip = vm.tools.find((x) => x.callId === e.data.callId);
+        if (chip && chip.state !== "declined") chip.state = e.data.isError ? "error" : "done";
+        vm.phase = "thinking";
+        this.ctx.emit("tool", { name: e.data.name, state: e.data.isError ? "failed" : "completed" });
+        break;
+      }
+      case "tool.input_required":
+        if (vm.tools.some((x) => x.callId === e.data.callId)) break; // replayed after a reconnect
+        if (e.data.kind === "client") {
+          vm.tools.push({ callId: e.data.callId, title: this.ctx.tools.get(e.data.name)?.description.split(/[.\n]/)[0]?.slice(0, 60) || e.data.title, state: "running" });
+          void this.runPageTool(e.runId, e.data.callId, e.data.name, e.data.input);
+        } else {
+          vm.tools.push({ callId: e.data.callId, title: e.data.title, state: "waiting" });
+          vm.confirm = { runId: e.runId, callId: e.data.callId, title: e.data.title, input: e.data.input, busy: false };
+          this.announce(`${this.t.approvalNeeded} ${e.data.title}`);
+        }
+        break;
+      case "message.suggestions":
+        vm.suggestions = e.data.suggestions.slice(0, 4);
+        break;
+      case "handoff.requested":
+        vm.handoff = { message: e.data.message, url: e.data.url };
+        this.ctx.emit("handoff", { conversationId: this.conversationId, trigger: "assistant", ...vm.handoff });
         break;
     }
     this.update(vm);
+  }
+
+  /** Definitions of the page's registered tools, sent with each question. */
+  private toolDefs(): ClientToolDef[] | undefined {
+    const defs = [...this.ctx.tools.values()].slice(0, 20).map((tool) => ({
+      name: tool.name,
+      description: String(tool.description).slice(0, 1024),
+      parameters: tool.parameters ?? { type: "object", properties: {} },
+    }));
+    return defs.length ? defs : undefined;
+  }
+
+  private async runPageTool(runId: string, callId: string, name: string, input: Record<string, unknown>) {
+    const tool = this.ctx.tools.get(name);
+    let body: { callId: string; output: unknown; isError?: boolean };
+    if (!tool) body = { callId, output: `The tool "${name}" is not available on this page.`, isError: true };
+    else {
+      try {
+        let timer = 0;
+        const output = await Promise.race([
+          Promise.resolve().then(() => tool.handler(input)),
+          new Promise((_, reject) => (timer = window.setTimeout(() => reject(new Error("timed out")), 60_000))),
+        ]).finally(() => clearTimeout(timer));
+        body = { callId, output: output === undefined ? null : JSON.parse(JSON.stringify(output)) };
+      } catch (err) {
+        body = { callId, output: err instanceof Error ? err.message : String(err), isError: true };
+      }
+    }
+    try {
+      await this.client.toolResult(runId, body);
+    } catch (err) {
+      console.warn("[embed-assistant] could not send tool result", err);
+    }
+  }
+
+  private async requestHandoff() {
+    if (this.handoffBtn.disabled) return;
+    this.handoffBtn.disabled = true;
+    try {
+      await this.ready();
+      if (this.view !== "chat") this.renderChat();
+      let conversationId = this.conversationId;
+      if (!conversationId) {
+        conversationId = (await this.client.createConversation()).id;
+        this.setConversation(conversationId);
+      }
+      const r = await this.client.handoff(conversationId);
+      const notice: ViewMessage = {
+        key: newKey(), id: null, role: "notice", content: "", citations: [], status: "complete", feedback: null, phase: null, error: null,
+        ...blank(), handoff: { message: r.message, url: r.url },
+      };
+      this.append(notice);
+      this.announce(r.message);
+      this.ctx.emit("handoff", { conversationId, trigger: "visitor", message: r.message, url: r.url });
+    } catch (err) {
+      this.showBanner(err instanceof ApiError && err.code === "rate_limited" ? this.errorText(err) : this.t.handoffFailed);
+    } finally {
+      this.handoffBtn.disabled = false;
+    }
   }
 
   private precedingUserText(vm: ViewMessage): string | undefined {
