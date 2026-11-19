@@ -4,9 +4,10 @@ description: Embeddable, model-agnostic AI assistant (server, admin console and 
 type: application
 version: 1.0.9
 appVersion: "1.0.9"
-license: Apache-2.0
 home: https://github.com/Kukutx/embed-assistant
 sources:
   - https://github.com/Kukutx/embed-assistant
 keywords: [ai, assistant, chatbot, rag, mcp]
 kubeVersion: ">=1.25.0-0"
+annotations:
+  artifacthub.io/license: Apache-2.0
