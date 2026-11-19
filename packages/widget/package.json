@@ -1,0 +1,22 @@
+{
+  "name": "@embed-assistant/widget",
+  "version": "1.0.0",
+  "description": "Framework-agnostic chat widget for embed-assistant: one script tag, Shadow DOM, streaming, accessible.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@embed-assistant/protocol": "workspace:*",
+    "esbuild": "^0.28.0",
+    "happy-dom": "^18.0.1",
+    "typescript": "~6.0.3",
+    "vitest": "^4.0.0"
+  }
+}

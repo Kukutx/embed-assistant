@@ -1,0 +1,21 @@
+{
+  "name": "embed-assistant-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generic, model-agnostic AI assistant that embeds into any web product with one script tag.",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "dev": "pnpm --filter @embed-assistant/widget build && pnpm --filter @embed-assistant/server dev",
+    "seed": "pnpm --filter @embed-assistant/server seed",
+    "migrate": "pnpm --filter @embed-assistant/server migrate",
+    "test:db": "TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgres://postgres:postgres@localhost:5432/embed_assistant_test} pnpm --filter @embed-assistant/server test",
+    "openapi": "pnpm --filter @embed-assistant/server --silent openapi"
+  }
+}

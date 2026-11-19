@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>My site</title></head>
+<body>
+  <h1>My existing website</h1>
+  <button onclick="EmbedAssistant.ask('How do I reset my password?')">Need help with your password?</button>
+
+  <!-- 1) The only required line. Replace the URL and widget id. -->
+  <script src="http://localhost:8787/widget/loader.js" data-widget-id="wgt_REPLACE_ME" async></script>
+
+  <!-- 2) Optional: page context and events. Calls before the widget loads are queued. -->
+  <script>
+    window.addEventListener("embed-assistant:loaded", () => {
+      EmbedAssistant.setContext({ attributes: { section: "account" } });
+      EmbedAssistant.on("message", (m) => console.log("assistant answered", m.messageId));
+    });
+  </script>
+</body>
+</html>

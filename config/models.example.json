@@ -1,0 +1,16 @@
+{
+  "$comment": "Point MODELS_CONFIG at a copy of this file. ${VAR} is replaced from the environment. Assistants only reference aliases.",
+  "deployments": [
+    { "id": "claude", "provider": "anthropic", "model": "claude-opus-5-5", "apiKey": "${ANTHROPIC_API_KEY}", "effort": "low" },
+    { "id": "claude-fast", "provider": "anthropic", "model": "claude-haiku-5-5", "apiKey": "${ANTHROPIC_API_KEY}" },
+    { "id": "openai", "provider": "openai-compatible", "model": "gpt-5-mini", "baseUrl": "https://api.openai.com/v1", "apiKey": "${OPENAI_API_KEY}" },
+    { "id": "local", "provider": "openai-compatible", "model": "llama3.2", "baseUrl": "http://ollama:11434/v1", "requiresKey": false },
+    { "id": "extractive", "provider": "builtin-extractive" }
+  ],
+  "aliases": {
+    "standard": ["claude", "openai", "extractive"],
+    "fast": ["claude-fast", "openai", "extractive"],
+    "private": ["local", "extractive"]
+  },
+  "embeddings": { "baseUrl": "https://api.openai.com/v1", "model": "text-embedding-3-small", "apiKey": "${OPENAI_API_KEY}" }
+}

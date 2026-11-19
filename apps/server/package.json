@@ -1,0 +1,42 @@
+{
+  "name": "@embed-assistant/server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "embed-assistant API server: sessions, conversations, streaming runs, knowledge, model routing.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "migrate": "tsx src/cli/migrate.ts",
+    "seed": "tsx src/cli/seed.ts",
+    "openapi": "tsx src/cli/openapi.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "@embed-assistant/protocol": "workspace:*",
+    "@hono/node-server": "^1.19.0",
+    "hono": "^4.10.0",
+    "jose": "^6.1.0",
+    "node-html-parser": "^7.0.1",
+    "pino": "^10.0.0",
+    "postgres": "^3.4.7",
+    "undici": "^7.30.2",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.0",
+    "typescript": "~6.0.3",
+    "vitest": "^4.0.0"
+  },
+  "files": [
+    "dist",
+    "migrations",
+    "static"
+  ],
+  "main": "dist/main.js"
+}

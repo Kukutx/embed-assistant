@@ -1,0 +1,211 @@
+import { readFileSync } from "node:fs";
+import { z } from "zod";
+import type { ModelAliasInfo } from "@embed-assistant/protocol";
+import type { Config } from "../config.js";
+import { AnthropicChat } from "./anthropic.js";
+import { ExtractiveChat } from "./extractive.js";
+import { OpenAICompatibleChat, OpenAICompatibleEmbeddings } from "./openaiCompatible.js";
+import type { ChatChunk, ChatModel, ChatRequest, EmbeddingModel } from "./types.js";
+import { ModelError } from "./types.js";
+
+/**
+ * models.json — the only place that names vendors. Assistants reference aliases.
+ * `${ENV_VAR}` inside string values is substituted from the environment.
+ */
+const DeploymentSchema = z.discriminatedUnion("provider", [
+  z.object({
+    id: z.string(),
+    provider: z.literal("anthropic"),
+    model: z.string(),
+    apiKey: z.string().optional(),
+    baseUrl: z.string().optional(),
+    effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+    serverFallback: z.boolean().optional(),
+  }),
+  z.object({
+    id: z.string(),
+    provider: z.literal("openai-compatible"),
+    model: z.string(),
+    baseUrl: z.string(),
+    apiKey: z.string().optional(),
+    requiresKey: z.boolean().default(true),
+  }),
+  z.object({ id: z.string(), provider: z.literal("builtin-extractive") }),
+]);
+
+const ModelsFileSchema = z.object({
+  deployments: z.array(DeploymentSchema).min(1),
+  /** alias -> ordered deployment ids (first available wins; later ones are failover). */
+  aliases: z.record(z.string(), z.array(z.string()).min(1)),
+  embeddings: z
+    .object({ id: z.string().default("embeddings"), baseUrl: z.string(), model: z.string(), apiKey: z.string().optional() })
+    .optional(),
+});
+export type ModelsFile = z.infer<typeof ModelsFileSchema>;
+
+function substituteEnv<T>(value: T, env: NodeJS.ProcessEnv): T {
+  if (typeof value === "string") {
+    return value.replace(/\$\{([A-Z0-9_]+)\}/g, (_, name: string) => env[name] ?? "") as T;
+  }
+  if (Array.isArray(value)) return value.map((v) => substituteEnv(v, env)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, substituteEnv(v, env)])) as T;
+  }
+  return value;
+}
+
+/** Defaults derived from env vars: every provider with credentials, then the offline fallback. */
+export function defaultModelsFile(cfg: Config): ModelsFile {
+  const deployments: ModelsFile["deployments"] = [];
+  const standard: string[] = [];
+  const fast: string[] = [];
+  if (cfg.ANTHROPIC_API_KEY) {
+    deployments.push(
+      { id: "anthropic", provider: "anthropic", model: cfg.ANTHROPIC_MODEL, apiKey: cfg.ANTHROPIC_API_KEY, effort: cfg.ANTHROPIC_EFFORT },
+      { id: "anthropic-fast", provider: "anthropic", model: cfg.ANTHROPIC_FAST_MODEL, apiKey: cfg.ANTHROPIC_API_KEY, effort: cfg.ANTHROPIC_EFFORT },
+    );
+    standard.push("anthropic");
+    fast.push("anthropic-fast");
+  }
+  if (cfg.OPENAI_API_KEY) {
+    deployments.push({
+      id: "openai",
+      provider: "openai-compatible",
+      model: cfg.OPENAI_MODEL,
+      baseUrl: cfg.OPENAI_BASE_URL,
+      apiKey: cfg.OPENAI_API_KEY,
+      requiresKey: true,
+    });
+    standard.push("openai");
+    fast.push("openai");
+  }
+  if (cfg.OLLAMA_BASE_URL) {
+    deployments.push({
+      id: "ollama",
+      provider: "openai-compatible",
+      model: cfg.OLLAMA_MODEL,
+      baseUrl: `${cfg.OLLAMA_BASE_URL.replace(/\/$/, "")}/v1`,
+      requiresKey: false,
+    });
+    standard.push("ollama");
+    fast.push("ollama");
+  }
+  deployments.push({ id: "extractive", provider: "builtin-extractive" });
+  standard.push("extractive");
+  fast.push("extractive");
+  const file: ModelsFile = { deployments, aliases: { standard, fast, private: cfg.OLLAMA_BASE_URL ? ["ollama"] : ["extractive"] } };
+  if (cfg.EMBEDDINGS_BASE_URL && cfg.EMBEDDINGS_MODEL) {
+    file.embeddings = {
+      id: "embeddings",
+      baseUrl: cfg.EMBEDDINGS_BASE_URL,
+      model: cfg.EMBEDDINGS_MODEL,
+      apiKey: cfg.EMBEDDINGS_API_KEY,
+    };
+  }
+  return file;
+}
+
+export function loadModelsFile(cfg: Config, env: NodeJS.ProcessEnv = process.env): ModelsFile {
+  if (!cfg.MODELS_CONFIG) return defaultModelsFile(cfg);
+  const raw = JSON.parse(readFileSync(cfg.MODELS_CONFIG, "utf8")) as unknown;
+  return ModelsFileSchema.parse(substituteEnv(raw, env));
+}
+
+export interface RoutedChunk {
+  deploymentId: string;
+  chunk: ChatChunk;
+}
+
+export class ModelRegistry {
+  private readonly deployments = new Map<string, ChatModel>();
+  readonly embeddings: EmbeddingModel | null;
+
+  constructor(
+    private readonly file: ModelsFile,
+    private readonly onFailover?: (from: string, err: ModelError) => void,
+  ) {
+    for (const d of file.deployments) {
+      if (this.deployments.has(d.id)) throw new Error(`duplicate deployment id ${d.id}`);
+      this.deployments.set(d.id, buildDeployment(d));
+    }
+    for (const [alias, ids] of Object.entries(file.aliases)) {
+      for (const id of ids) if (!this.deployments.has(id)) throw new Error(`alias ${alias} references unknown deployment ${id}`);
+    }
+    const e = file.embeddings;
+    this.embeddings = e ? new OpenAICompatibleEmbeddings({ id: e.id, baseUrl: e.baseUrl, model: e.model, apiKey: e.apiKey }) : null;
+  }
+
+  /** Register or replace a deployment programmatically (tests, plugins). */
+  register(model: ChatModel, aliases: string[] = []): void {
+    this.deployments.set(model.id, model);
+    for (const a of aliases) this.file.aliases[a] = [model.id, ...(this.file.aliases[a] ?? []).filter((x) => x !== model.id)];
+  }
+
+  hasAlias(alias: string): boolean {
+    return alias in this.file.aliases;
+  }
+
+  describe(): ModelAliasInfo[] {
+    return Object.entries(this.file.aliases).map(([alias, ids]) => ({
+      alias,
+      deployments: ids.map((id) => {
+        const d = this.deployments.get(id)!;
+        return { id, provider: d.provider, model: d.model, available: d.available() };
+      }),
+    }));
+  }
+
+  /**
+   * Stream from the first available deployment of the alias. On a retryable
+   * error BEFORE any text was produced, fail over to the next deployment.
+   * After text has streamed we never splice another model's answer in.
+   */
+  async *stream(alias: string, req: ChatRequest): AsyncGenerator<RoutedChunk> {
+    const ids = this.file.aliases[alias] ?? this.file.aliases.standard;
+    if (!ids) throw new ModelError(`unknown model alias ${alias}`, false);
+    const candidates = ids.map((id) => this.deployments.get(id)!).filter((d) => d.available());
+    if (candidates.length === 0) throw new ModelError(`no available deployment for alias ${alias}`, false);
+    let lastErr: ModelError | null = null;
+    for (const d of candidates) {
+      let emitted = false;
+      try {
+        for await (const chunk of d.stream(req)) {
+          if (chunk.type === "text") emitted = true;
+          yield { deploymentId: d.id, chunk };
+        }
+        return;
+      } catch (err) {
+        if (req.signal.aborted) throw err;
+        const me = err instanceof ModelError ? err : new ModelError((err as Error).message, false);
+        if (emitted || !me.retryable) throw me;
+        lastErr = me;
+        this.onFailover?.(d.id, me);
+      }
+    }
+    throw lastErr ?? new ModelError("all deployments failed", true);
+  }
+}
+
+function buildDeployment(d: ModelsFile["deployments"][number]): ChatModel {
+  switch (d.provider) {
+    case "anthropic":
+      return new AnthropicChat({
+        id: d.id,
+        model: d.model,
+        apiKey: d.apiKey || undefined,
+        baseUrl: d.baseUrl || undefined,
+        effort: d.effort ?? "low",
+        serverFallback: d.serverFallback ?? true,
+      });
+    case "openai-compatible":
+      return new OpenAICompatibleChat({
+        id: d.id,
+        model: d.model,
+        baseUrl: d.baseUrl,
+        apiKey: d.apiKey || undefined,
+        requiresKey: d.requiresKey,
+      });
+    case "builtin-extractive":
+      return new ExtractiveChat(d.id);
+  }
+}

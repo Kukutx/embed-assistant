@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>embed-assistant demo</title>
+<style>
+  :root{color-scheme:light dark;--bg:#fafafa;--fg:#1b1d21;--muted:#5d636d;--card:#fff;--border:#e3e5e8}
+  @media (prefers-color-scheme:dark){:root{--bg:#121315;--fg:#ececee;--muted:#a1a6af;--card:#1b1c1f;--border:#2b2d31}}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{border-bottom:1px solid var(--border);background:var(--card)}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px}
+  nav{display:flex;align-items:center;gap:24px;height:60px;font-weight:600}
+  nav span{color:var(--muted);font-weight:400;font-size:14px}
+  main{padding:48px 0 120px}
+  h1{font-size:34px;line-height:1.2;margin:0 0 12px;letter-spacing:-.02em}
+  p.lead{color:var(--muted);font-size:18px;margin:0 0 32px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px}
+  .card h3{margin:0 0 6px;font-size:16px}
+  .card p{margin:0;color:var(--muted);font-size:14.5px}
+  button.cta{font:inherit;border:1px solid var(--border);background:var(--card);color:var(--fg);border-radius:10px;padding:8px 14px;cursor:pointer;margin:24px 8px 0 0}
+  code{font-size:13.5px;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1px 6px}
+  .warn{padding:12px 16px;border-radius:10px;background:#fff4e5;color:#7a4100;margin-bottom:24px}
+</style>
+</head>
+<body>
+<header><div class="wrap"><nav>Acme Cloud <span>Docs</span><span>Pricing</span><span>Support</span></nav></div></header>
+<main class="wrap">
+  <div id="warn" class="warn" hidden>Add <code>?widget=wgt_...</code> to the URL (the seed command prints it).</div>
+  <h1>A demo page with the assistant embedded</h1>
+  <p class="lead">This page stands in for any existing website. The chat button in the corner comes from one script tag.</p>
+  <div class="grid">
+    <div class="card"><h3>One script tag</h3><p>Works with any framework, CMS or static site. The UI lives in a Shadow DOM and never clashes with page styles.</p></div>
+    <div class="card"><h3>Grounded answers</h3><p>Answers come from your own knowledge sources, with numbered citations.</p></div>
+    <div class="card"><h3>Any model</h3><p>Claude, any OpenAI-compatible endpoint, local models, or the built-in offline mode.</p></div>
+  </div>
+  <button class="cta" id="ask">Ask "How do signed-in users work?"</button>
+  <button class="cta" id="toggle">Toggle chat</button>
+</main>
+<script>
+  const params = new URLSearchParams(location.search);
+  const widget = params.get("widget");
+  if (!widget) document.getElementById("warn").hidden = false;
+  else {
+    const s = document.createElement("script");
+    s.src = "/widget/loader.js";
+    s.async = true;
+    s.dataset.widgetId = widget;
+    for (const k of ["locale", "mode", "position", "accentColor", "open"]) if (params.get(k)) s.dataset[k] = params.get(k);
+    document.body.appendChild(s);
+  }
+  document.getElementById("ask").onclick = () => window.EmbedAssistant?.ask("How do signed-in users work?");
+  document.getElementById("toggle").onclick = () => window.EmbedAssistant?.toggle();
+</script>
+</body>
+</html>
