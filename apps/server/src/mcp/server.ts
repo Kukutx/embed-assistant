@@ -19,7 +19,7 @@ import { ApiError } from "../lib/errors.js";
 import { validateArguments } from "../lib/jsonSchema.js";
 import { metrics } from "../lib/metrics.js";
 import { retrieve } from "../knowledge/retrieve.js";
-import { buildSystemPrompt, buildUserTurn, extractCitations } from "../runs/prompt.js";
+import { answerOnce } from "../runs/answer.js";
 import {
   decodeHeaderValue,
   ERR,
@@ -148,28 +148,14 @@ const TOOLS: ServerTool[] = [
       const question = String(args.question);
       // Answers cost model tokens: cap them per key per day on top of the per-minute call limit.
       await s.limiter.hit(`mcp:ask:${key.id}`, ASK_PER_DAY, 86_400);
-      const sources = await retrieve(s.sql, s.models.embeddings, s.log, {
-        tenantId: key.tenant_id,
-        sourceIds: a.source_ids,
-        access: key.access,
-        query: question,
-      });
-      let answer = "";
-      for await (const { deploymentId, chunk } of s.models.stream(a.model_alias, {
-        system: buildSystemPrompt({ assistantName: a.name, instructions: a.instructions, groundedOnly: a.grounded_only }),
-        messages: [{ role: "user", content: buildUserTurn({ question, sources, context: undefined }) }],
-        question,
-        sources,
-        maxOutputTokens: 2048,
-        signal,
-      })) {
-        if (chunk.type === "text") answer += chunk.text;
-        else if (chunk.type === "usage") {
-          metrics.tokens.inc({ direction: "input", deployment: deploymentId }, chunk.inputTokens);
-          metrics.tokens.inc({ direction: "output", deployment: deploymentId }, chunk.outputTokens);
-        }
+      // Same guardrails, retrieval and knowledge search as the widget; no side-effecting tools.
+      const r = await answerOnce({ sql: s.sql, models: s.models, log: s.log }, { tenantId: key.tenant_id, assistant: a, question, access: key.access, signal });
+      if (r.deploymentId) {
+        metrics.tokens.inc({ direction: "input", deployment: r.deploymentId }, r.usage.inputTokens);
+        metrics.tokens.inc({ direction: "output", deployment: r.deploymentId }, r.usage.outputTokens);
       }
-      const citations = extractCitations(answer, sources).map((c) => ({ index: c.index, title: c.title, url: c.url }));
+      const answer = r.answer;
+      const citations = r.citations.map((c) => ({ index: c.index, title: c.title, url: c.url }));
       const refs = citations.length ? `\n\nSources:\n${citations.map((c) => `[${c.index}] ${c.title}${c.url ? ` ${c.url}` : ""}`).join("\n")}` : "";
       return { text: answer.trim() + refs, structured: { answer: answer.trim(), citations } };
     },

@@ -17,7 +17,7 @@ export function ulid(now: number = Date.now()): string {
 }
 
 export type IdPrefix =
-  | "ten" | "key" | "ast" | "wgt" | "conv" | "msg" | "run" | "src" | "doc" | "chk" | "job" | "anon" | "act" | "whk" | "evt" | "call" | "mcp" | "aud" | "usr";
+  | "ten" | "key" | "ast" | "wgt" | "conv" | "msg" | "run" | "src" | "doc" | "chk" | "job" | "anon" | "act" | "whk" | "evt" | "call" | "mcp" | "aud" | "usr" | "evs" | "evc" | "evr";
 
 export function newId(prefix: IdPrefix): string {
   return `${prefix}_${ulid()}`;

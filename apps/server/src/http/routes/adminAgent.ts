@@ -19,6 +19,7 @@ import {
   WebhookInput,
   WebhookPatch,
   AuditEventList,
+  type GuardrailKind,
 } from "@embed-assistant/protocol";
 import { callAction, createAction, deleteAction, getAction, listActions, toAction, updateAction } from "../../actions/actions.js";
 import { generateAdminKey } from "../../auth/adminKey.js";
@@ -349,12 +350,12 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
       const to = new Date();
       const from = new Date(to.getTime() - query.days * 86400_000);
       const norm = sql`lower(regexp_replace(btrim(m.content), '\\s+', ' ', 'g'))`;
-      const [counts, top, gaps, down, tools] = await Promise.all([
+      const [counts, top, gaps, down, tools, guards] = await Promise.all([
         sql<{ conversations: string; questions: string; unanswered: string; handoffs: string; up: string; down: string }[]>`
           SELECT
             (SELECT count(*) FROM conversations WHERE tenant_id = ${tenantId} AND created_at >= ${from}) AS conversations,
             (SELECT count(*) FROM runs WHERE tenant_id = ${tenantId} AND created_at >= ${from}) AS questions,
-            (SELECT count(*) FROM runs WHERE tenant_id = ${tenantId} AND created_at >= ${from} AND source_count = 0) AS unanswered,
+            (SELECT count(*) FROM runs WHERE tenant_id = ${tenantId} AND created_at >= ${from} AND source_count = 0 AND guardrail IS NULL) AS unanswered,
             (SELECT count(*) FROM conversations WHERE tenant_id = ${tenantId} AND handoff_at >= ${from}) AS handoffs,
             (SELECT count(*) FROM messages WHERE tenant_id = ${tenantId} AND created_at >= ${from} AND feedback = 'up') AS up,
             (SELECT count(*) FROM messages WHERE tenant_id = ${tenantId} AND created_at >= ${from} AND feedback = 'down') AS down`,
@@ -365,7 +366,7 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
         sql<{ question: string; count: string; last: Date }[]>`
           SELECT min(m.content) AS question, count(*) AS count, max(m.created_at) AS last
           FROM runs r JOIN messages m ON m.id = r.user_message_id
-          WHERE r.tenant_id = ${tenantId} AND r.created_at >= ${from} AND r.source_count = 0
+          WHERE r.tenant_id = ${tenantId} AND r.created_at >= ${from} AND r.source_count = 0 AND r.guardrail IS NULL
           GROUP BY ${norm} ORDER BY count(*) DESC, max(m.created_at) DESC LIMIT 20`,
         sql<{ conversation_id: string; id: string; answer: string; comment: string | null; created_at: Date; question: string | null }[]>`
           SELECT a.conversation_id, a.id, a.content AS answer, a.feedback_comment AS comment, a.created_at,
@@ -378,6 +379,10 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
           FROM messages m, jsonb_array_elements(m.tool_calls) t
           WHERE m.tenant_id = ${tenantId} AND m.created_at >= ${from} AND jsonb_array_length(m.tool_calls) > 0
           GROUP BY 1 ORDER BY 2 DESC LIMIT 50`,
+        sql<{ kind: GuardrailKind; count: string }[]>`
+          SELECT guardrail AS kind, count(*) AS count FROM runs
+          WHERE tenant_id = ${tenantId} AND created_at >= ${from} AND guardrail IS NOT NULL
+          GROUP BY 1 ORDER BY 2 DESC`,
       ]);
       const k = counts[0]!;
       const up = Number(k.up);
@@ -396,6 +401,7 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
         knowledgeGaps: gaps.map((r) => ({ question: r.question, count: Number(r.count), lastAskedAt: iso(r.last) })),
         downvoted: down.map((r) => ({ conversationId: r.conversation_id, messageId: r.id, question: r.question ?? "", answer: r.answer, comment: r.comment, createdAt: iso(r.created_at) })),
         tools: tools.map((r) => ({ name: r.name, calls: Number(r.calls), errors: Number(r.errors) })),
+        guardrails: guards.map((r) => ({ kind: r.kind, count: Number(r.count) })),
       };
       return c.json(body);
     });

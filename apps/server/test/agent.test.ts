@@ -171,6 +171,7 @@ describe.skipIf(!DB)("agent features (postgres)", () => {
     app = createApp(s);
     worker = new JobWorker(sql, s.log, {
       ingest_source: async () => {},
+      run_eval: async () => {},
       deliver_webhook: (job) => deliverWebhook({ sql, key: s.secretsKey, log: s.log, allowPrivate: true }, job),
     });
 

@@ -31,6 +31,41 @@ export const HandoffConfig = z.object({
 });
 export type HandoffConfig = z.infer<typeof HandoffConfig>;
 
+export const DEFAULT_REFUSAL_MESSAGE = "Sorry, I can't help with that. Is there something else I can help you with?";
+export const DEFAULT_SUPPORT_MESSAGE =
+  "It sounds like you may be going through a hard time. You don't have to face it alone: please reach out to someone you trust, " +
+  "or contact a local crisis line or emergency services if you are in danger.";
+
+/**
+ * Safety rules checked before (and while) the assistant answers. Blocked terms
+ * are matched locally; topics, moderation and prompt-injection detection use a
+ * classifier call on the `fast` model alias (falling back to the assistant's).
+ * If the classifier is unavailable the message is allowed (fail open) and the
+ * error is counted in metrics.
+ */
+export const GuardrailConfig = z.object({
+  /** Words or phrases (case-insensitive, whole words; substrings for CJK/Thai) that block a question. */
+  blockedTerms: z.array(z.string().trim().min(1).max(100)).max(500).default([]),
+  /** Topics in plain language, e.g. "medical diagnosis" or "competitor products". Questions mainly about one are refused. */
+  blockedTopics: z.array(z.string().trim().min(3).max(200)).max(30).default([]),
+  /** Refuse harmful requests (violence, weapons, self-harm, sexual content, hate, illegal activity). */
+  moderation: z.boolean().default(false),
+  /** Refuse attempts to override the instructions, change the assistant's role or extract its prompt. */
+  promptInjection: z.boolean().default(false),
+  /** Also check answers: an answer containing a blocked term is replaced by the refusal message. */
+  checkAnswers: z.boolean().default(true),
+  /** Shown instead of an answer when a rule blocks the question. */
+  refusalMessage: z.string().trim().min(1).max(1000).default(DEFAULT_REFUSAL_MESSAGE),
+  /** Shown instead of the refusal when moderation detects self-harm. */
+  supportMessage: z.string().trim().min(1).max(1000).default(DEFAULT_SUPPORT_MESSAGE),
+});
+export type GuardrailConfig = z.infer<typeof GuardrailConfig>;
+export const DEFAULT_GUARDRAILS: GuardrailConfig = GuardrailConfig.parse({});
+
+/** Which rule stopped an answer. */
+export const GuardrailKind = z.enum(["term", "topic", "harmful", "injection", "answer_term"]);
+export type GuardrailKind = z.infer<typeof GuardrailKind>;
+
 export const Assistant = z.object({
   id: Id,
   name: z.string(),
@@ -59,6 +94,7 @@ export const Assistant = z.object({
   clientTools: z.boolean(),
   /** Mask e-mail addresses, phone numbers, card numbers and IBANs before storing or sending to a model. */
   redactPii: z.boolean(),
+  guardrails: GuardrailConfig,
   version: z.number().int(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
@@ -84,6 +120,7 @@ const AssistantFields = {
   agenticSearch: z.boolean(),
   clientTools: z.boolean(),
   redactPii: z.boolean(),
+  guardrails: GuardrailConfig,
 };
 
 export const AssistantInput = z.object({
@@ -104,6 +141,7 @@ export const AssistantInput = z.object({
   agenticSearch: AssistantFields.agenticSearch.default(true),
   clientTools: AssistantFields.clientTools.default(true),
   redactPii: AssistantFields.redactPii.default(false),
+  guardrails: GuardrailConfig.default(DEFAULT_GUARDRAILS),
 });
 export type AssistantInput = z.infer<typeof AssistantInput>;
 /** PATCH body: only the fields present are changed (no defaults are applied). */
@@ -462,6 +500,8 @@ export const WebhookEventType = z.enum([
   "audit.recorded",
   /** The visitor wrote while a person handles the conversation (bridge to your helpdesk). */
   "message.received",
+  /** A guardrail refused a question or replaced an answer. */
+  "guardrail.triggered",
 ]);
 export type WebhookEventType = z.infer<typeof WebhookEventType>;
 
@@ -560,6 +600,8 @@ export const Insights = z.object({
   /** Answers rated down, most recent first. */
   downvoted: z.array(z.object({ conversationId: Id, messageId: Id, question: z.string(), answer: z.string(), comment: z.string().nullable(), createdAt: Timestamp })),
   tools: z.array(z.object({ name: z.string(), calls: z.number().int(), errors: z.number().int() })),
+  /** Questions refused or answers replaced by guardrails, by rule. */
+  guardrails: z.array(z.object({ kind: GuardrailKind, count: z.number().int() })),
 });
 export type Insights = z.infer<typeof Insights>;
 
@@ -688,3 +730,130 @@ export const SsoConfigInput = z.object({
 });
 
 export const ConsoleLogin = z.object({ token: z.string(), expiresAt: Timestamp, user: ConsoleUser });
+
+// ---------------------------------------------------------------------------
+// Evaluations: test suites of questions with expectations, run against an
+// assistant to measure answer quality and catch regressions.
+// ---------------------------------------------------------------------------
+
+/** What the assistant should do with a question. */
+export const EvalOutcome = z.enum(["answer", "refuse", "handoff"]);
+export type EvalOutcome = z.infer<typeof EvalOutcome>;
+
+const Phrase = z.string().trim().min(1).max(300);
+const EvalCaseFields = {
+  question: z.string().trim().min(1).max(4000),
+  /** Reference answer. When set, a model judges the answer against it (correctness and completeness, 1-5). */
+  expectedAnswer: z.string().trim().min(1).max(8000).nullable(),
+  /** Phrases the answer must contain (case-insensitive). */
+  mustInclude: z.array(Phrase).max(20),
+  /** Phrases the answer must not contain. */
+  mustNotInclude: z.array(Phrase).max(20),
+  /** Each entry must match a cited source: its URL, document id, or part of its title. */
+  expectedSources: z.array(z.string().trim().min(1).max(2048)).max(10),
+  /** Expected behaviour; null = not checked. */
+  expectedOutcome: EvalOutcome.nullable(),
+  /** Access groups the simulated visitor has (besides `public`), for restricted knowledge. */
+  access: z.array(AccessTag).max(20),
+  tags: z.array(z.string().trim().min(1).max(40)).max(10),
+};
+export const EvalCaseInput = z.object({
+  question: EvalCaseFields.question,
+  expectedAnswer: EvalCaseFields.expectedAnswer.default(null),
+  mustInclude: EvalCaseFields.mustInclude.default([]),
+  mustNotInclude: EvalCaseFields.mustNotInclude.default([]),
+  expectedSources: EvalCaseFields.expectedSources.default([]),
+  expectedOutcome: EvalCaseFields.expectedOutcome.default(null),
+  access: EvalCaseFields.access.default([]),
+  tags: EvalCaseFields.tags.default([]),
+});
+export type EvalCaseInput = z.infer<typeof EvalCaseInput>;
+export const EvalCasePatch = z.object(EvalCaseFields).partial();
+/** Add one case or many (import). */
+export const EvalCasesInput = z.object({ cases: z.array(EvalCaseInput).min(1).max(500) });
+export const EvalCase = z.object({ id: Id, ...EvalCaseFields, createdAt: Timestamp, updatedAt: Timestamp });
+export type EvalCase = z.infer<typeof EvalCase>;
+export const EvalCaseList = z.object({ items: z.array(EvalCase) });
+
+export const EvalRunStatus = z.enum(["queued", "running", "completed", "failed", "cancelled"]);
+export const EvalRun = z.object({
+  id: Id,
+  suiteId: Id,
+  assistantId: Id,
+  /** Assistant configuration version the run used. */
+  assistantVersion: z.number().int(),
+  status: EvalRunStatus,
+  total: z.number().int(),
+  completed: z.number().int(),
+  passed: z.number().int(),
+  /** Mean case score, 0..1 (null until a case finishes). */
+  score: z.number().nullable(),
+  /** Whether reference answers were scored by a model judge. */
+  judge: z.boolean(),
+  inputTokens: z.number().int(),
+  outputTokens: z.number().int(),
+  error: z.string().nullable(),
+  createdBy: z.string().nullable(),
+  createdAt: Timestamp,
+  startedAt: Timestamp.nullable(),
+  finishedAt: Timestamp.nullable(),
+});
+export type EvalRun = z.infer<typeof EvalRun>;
+export const EvalRunList = z.object({ items: z.array(EvalRun) });
+export const EvalRunInput = z.object({
+  /** Run the suite against another assistant (e.g. a copy with new instructions) to compare. Default: the suite's assistant. */
+  assistantId: Id.optional(),
+  /** Score reference answers with a model judge (uses model tokens). */
+  judge: z.boolean().default(true),
+});
+
+export const EvalCheck = z.object({
+  name: z.enum(["must_include", "must_not_include", "sources", "outcome", "judge"]),
+  passed: z.boolean(),
+  /** 0..1 */
+  score: z.number(),
+  detail: z.string().nullable(),
+});
+export const EvalResult = z.object({
+  caseId: Id,
+  question: z.string(),
+  answer: z.string(),
+  citations: z.array(z.object({ index: z.number().int(), title: z.string(), url: z.string().nullable(), documentId: z.string() })),
+  outcome: EvalOutcome,
+  guardrail: GuardrailKind.nullable(),
+  passed: z.boolean(),
+  score: z.number(),
+  checks: z.array(EvalCheck),
+  latencyMs: z.number().int(),
+  inputTokens: z.number().int(),
+  outputTokens: z.number().int(),
+  error: z.string().nullable(),
+  /** The same case in the previous completed run of this suite, for regressions. */
+  previous: z.object({ passed: z.boolean(), score: z.number() }).nullable(),
+});
+export type EvalResult = z.infer<typeof EvalResult>;
+export const EvalRunDetail = EvalRun.extend({ previousRunId: Id.nullable(), results: z.array(EvalResult) });
+export type EvalRunDetail = z.infer<typeof EvalRunDetail>;
+
+export const EvalSuite = z.object({
+  id: Id,
+  name: z.string(),
+  description: z.string(),
+  assistantId: Id,
+  caseCount: z.number().int(),
+  lastRun: EvalRun.nullable(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type EvalSuite = z.infer<typeof EvalSuite>;
+export const EvalSuiteList = z.object({ items: z.array(EvalSuite) });
+export const EvalSuiteInput = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().max(1000).default(""),
+  assistantId: Id,
+});
+export const EvalSuitePatch = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().max(1000),
+  assistantId: Id,
+}).partial();

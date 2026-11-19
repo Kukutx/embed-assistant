@@ -11,6 +11,7 @@ import { purgeSessions } from "./auth/console.js";
 import { createServices, serverVersion } from "./services.js";
 import { initTelemetry } from "./lib/telemetry.js";
 import { deliverWebhook } from "./webhooks/webhooks.js";
+import { runEvalJob } from "./evals/evals.js";
 
 const cfg = loadConfig();
 // Tracing must be registered before anything creates spans.
@@ -33,6 +34,7 @@ const worker = cfg.RUN_WORKER
             throw err;
           },
         ),
+      run_eval: (job) => runEvalJob({ sql, models: s.models, log }, job),
     })
   : null;
 worker?.start();

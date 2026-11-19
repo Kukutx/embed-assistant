@@ -63,6 +63,7 @@ Rules:
 | `/v1/admin/keys`, `/settings` | API keys, retention and budget |
 | `/v1/admin/me`, `/users`, `/sso`, `/logout` | Caller and permissions, people and roles, single sign-on |
 | `/v1/admin/audit-log` (`?action=&targetId=&actorId=&from=&to=&cursor=`) | Audit log of changes (read-only) |
+| `/v1/admin/evals` (+ `/cases`, `/runs`), `/v1/admin/eval-runs/{id}` (+ `/cancel`) | Evaluation suites, runs and per-case results ([quality.md](quality.md)) |
 
 ### Audit log
 

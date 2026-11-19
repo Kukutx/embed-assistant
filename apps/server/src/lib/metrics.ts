@@ -59,7 +59,9 @@ export const metrics = {
   tools: new Counter("ea_tool_calls_total", "Server-side tool calls by tool and status"),
   webhooks: new Counter("ea_webhook_deliveries_total", "Webhook delivery attempts by status"),
   mcp: new Counter("ea_mcp_tool_calls_total", "MCP server tool calls by tool and status"),
+  guardrails: new Counter("ea_guardrail_checks_total", "Guardrail outcomes by rule (blocked) or classifier errors"),
+  evals: new Counter("ea_eval_cases_total", "Evaluation cases by result"),
   render(): string {
-    return [this.runs, this.failovers, this.tokens, this.ttft, this.duration, this.http, this.tools, this.webhooks, this.mcp].map((m) => m.render()).join("\n\n") + "\n";
+    return [this.runs, this.failovers, this.tokens, this.ttft, this.duration, this.http, this.tools, this.webhooks, this.mcp, this.guardrails, this.evals].map((m) => m.render()).join("\n\n") + "\n";
   },
 };

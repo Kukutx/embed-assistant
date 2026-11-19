@@ -28,6 +28,10 @@ const NAMED: Record<string, string> = {
   "DELETE /keys/:id": "keys.revoke",
   "GET /conversations/export": "conversations.export",
   "POST /logout": "auth.logout",
+  "POST /evals/:id/runs": "evals.run",
+  "POST /evals/:id/cases": "eval-cases.create",
+  "PATCH /evals/:id/cases/:caseId": "eval-cases.update",
+  "DELETE /evals/:id/cases/:caseId": "eval-cases.delete",
 };
 
 /** Sensitive reads that are audited like changes. */

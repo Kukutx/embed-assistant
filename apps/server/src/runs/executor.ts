@@ -3,7 +3,7 @@ import type { Logger } from "pino";
 import type { ClientToolDef, PageContext } from "@embed-assistant/protocol";
 import { listActions } from "../actions/actions.js";
 import type { Sql } from "../db/pool.js";
-import { finishMessage, insertMessage, toMessage, type AssistantRow, type MessageRow } from "../db/store.js";
+import { finishMessage, guardrailsOf, insertMessage, toMessage, type AssistantRow, type MessageRow } from "../db/store.js";
 import { retrieve } from "../knowledge/retrieve.js";
 import { decrypt } from "../lib/crypto.js";
 import { newId } from "../lib/ids.js";
@@ -13,6 +13,8 @@ import type { ModelRegistry } from "../models/registry.js";
 import { ModelError, type ChatTurn, type SourcePassage, type ToolCall, type ToolResult } from "../models/types.js";
 import { emitWebhook } from "../webhooks/webhooks.js";
 import { auxAlias, contextualQuery, suggestFollowUps } from "./assist.js";
+import { knowledgeSearch } from "./answer.js";
+import { AnswerWatch, checkQuestion, TermMatcher, type GuardrailVerdict } from "./guardrails.js";
 import { requestHandoff } from "./handoff.js";
 import { buildSystemPrompt, buildUserTurn, extractCitations, toCitation, trimHistory } from "./prompt.js";
 import {
@@ -241,7 +243,16 @@ export class RunExecutor {
       const history = trimHistory(historyRows.reverse());
       const aux = auxAlias(this.models, a.model_alias);
 
-      const query = a.source_ids.length
+      // Guardrails: the term list is checked locally; the classifier runs in parallel with retrieval.
+      const g = guardrailsOf(a);
+      const terms = new TermMatcher(g.blockedTerms);
+      const termHit = terms.find(job.userMessage.content) !== null;
+      const guard = checkQuestion(
+        { models: this.models, log: this.log },
+        { alias: aux, question: job.userMessage.content, previous: [...history].reverse().find((t) => t.role === "user")?.content, guardrails: g, terms, signal },
+      );
+
+      const query = a.source_ids.length && !termHit
         ? await contextualQuery(this.models, { alias: aux, question: job.userMessage.content, history, useModel: a.query_rewrite, signal })
         : job.userMessage.content;
       const retrieveFor = (q: string) =>
@@ -250,28 +261,24 @@ export class RunExecutor {
           span.setAttribute("embed_assistant.passages", r.length);
           return r;
         });
-      const sources: SourcePassage[] = await retrieveFor(query);
-      await sql`UPDATE runs SET retrieval_query = ${query}, source_count = ${sources.length} WHERE id = ${job.runId}`;
-      await emit(job.runId, ++seq, "retrieval.completed", { sources: sources.map(toCitation) });
+      const sources: SourcePassage[] = a.source_ids.length && !termHit ? await retrieveFor(query) : [];
+      const blocked: GuardrailVerdict | null = await guard;
+      if (blocked) {
+        sources.length = 0;
+        await sql`UPDATE runs SET retrieval_query = ${query}, source_count = 0, guardrail = ${blocked.kind}, guardrail_detail = ${blocked.detail} WHERE id = ${job.runId}`;
+      } else {
+        await sql`UPDATE runs SET retrieval_query = ${query}, source_count = ${sources.length} WHERE id = ${job.runId}`;
+        await emit(job.runId, ++seq, "retrieval.completed", { sources: sources.map(toCitation) });
+      }
 
-      // Extra searches append passages with new numbers so earlier citations stay valid.
-      const seen = new Set(sources.map((x) => `${x.documentId}:${x.content.slice(0, 200)}`));
+      const search = knowledgeSearch(sources, retrieveFor);
       const onSearch = async (q: string): Promise<string> => {
-        const found = await retrieveFor(q.slice(0, 300));
-        const fresh: SourcePassage[] = [];
-        for (const f of found) {
-          const k = `${f.documentId}:${f.content.slice(0, 200)}`;
-          if (seen.has(k) || sources.length + fresh.length >= 30) continue;
-          seen.add(k);
-          fresh.push({ ...f, index: sources.length + fresh.length + 1 });
-        }
-        sources.push(...fresh);
+        const { text: found, fresh } = await search(q);
         if (fresh.length) {
           await emit(job.runId, ++seq, "retrieval.completed", { sources: sources.map(toCitation) });
           await sql`UPDATE runs SET source_count = ${sources.length} WHERE id = ${job.runId}`;
         }
-        if (!fresh.length) return found.length ? "No new passages (the results were already provided as sources)." : "No matching passages found.";
-        return buildUserTurn({ question: "", sources: fresh, context: undefined }).replace(/\n\nQuestion: $/, "");
+        return found;
       };
       let handedOff = false;
       const onHandoff = async (reason: string): Promise<string> => {
@@ -285,7 +292,7 @@ export class RunExecutor {
         }
         return `The team has been notified. The user will see this message: "${r.message}"${r.url ? ` and a link to ${r.url}` : ""}. Do not repeat the link.`;
       };
-      const tools = await this.buildTools(job, onSearch, onHandoff);
+      const tools = blocked ? new Map<string, RunTool>() : await this.buildTools(job, onSearch, onHandoff);
 
       assistantMsg = await insertMessage(sql, {
         tenantId: job.tenantId,
@@ -327,7 +334,9 @@ export class RunExecutor {
       };
 
       let refused = false;
-      for (let step = 0; step < MAX_TOOL_STEPS; step++) {
+      const watch = new AnswerWatch(terms);
+      let answerTerm: string | null = null;
+      for (let step = 0; step < MAX_TOOL_STEPS && !blocked && !answerTerm; step++) {
         const lastStep = step === MAX_TOOL_STEPS - 1;
         let stepText = "";
         const calls: ToolCall[] = [];
@@ -345,12 +354,12 @@ export class RunExecutor {
         })) {
           deploymentId = dep;
           if (chunk.type === "text") {
-            if (!sepSent && sep) {
-              sepSent = true;
-              await push(sep);
-            }
+            const piece = (!sepSent && sep ? sep : "") + chunk.text;
+            // Check before sending, so a blocked term in this chunk never reaches the visitor.
+            if (g.checkAnswers && (answerTerm = watch.push(piece))) break;
+            sepSent = true;
             stepText += chunk.text;
-            await push(chunk.text);
+            await push(piece);
           } else if (chunk.type === "usage") {
             usage.inputTokens += chunk.inputTokens;
             usage.outputTokens += chunk.outputTokens;
@@ -362,7 +371,7 @@ export class RunExecutor {
             raw = { provider: chunk.provider, content: chunk.content };
           }
         }
-        if (!calls.length || refused) break;
+        if (!calls.length || refused || answerTerm) break;
         await flush();
         transcript.push({ role: "assistant", content: stepText, toolCalls: calls, ...(raw ? { raw } : {}) });
         const results: ToolResult[] = [];
@@ -373,15 +382,24 @@ export class RunExecutor {
         }
         transcript.push({ role: "tool", results });
       }
-      if (refused && !text.trim()) await push(REFUSAL_TEXT);
+      if (blocked) await push(blocked.message);
+      else if (answerTerm) {
+        // Text already streamed is replaced: message.completed carries the final content.
+        pending = "";
+        text = g.refusalMessage;
+        sources.length = 0;
+        await sql`UPDATE runs SET guardrail = 'answer_term', guardrail_detail = ${answerTerm} WHERE id = ${job.runId}`;
+        metrics.guardrails.inc({ result: "blocked", rule: "answer_term" });
+      } else if (refused && !text.trim()) await push(REFUSAL_TEXT);
       await flush();
+      const guardrail = blocked ? { kind: blocked.kind, detail: blocked.detail } : answerTerm ? { kind: "answer_term" as const, detail: answerTerm } : null;
 
       const citations = extractCitations(text, sources);
       if (toolLog.length) await sql`UPDATE messages SET tool_calls = ${sql.json(toolLog)} WHERE id = ${assistantMsg.id}`;
       const finished = await finishMessage(sql, job.tenantId, assistantMsg.id, text, citations, "complete");
       await emit(job.runId, ++seq, "message.completed", { message: toMessage(finished) });
 
-      if (a.follow_ups && !refused && !handedOff) {
+      if (a.follow_ups && !refused && !handedOff && !guardrail) {
         const suggestions = await suggestFollowUps(this.models, { alias: aux, question: job.userMessage.content, answer: text, sources, signal });
         if (suggestions.length) {
           await sql`UPDATE messages SET suggestions = ${sql.json(suggestions)} WHERE id = ${assistantMsg.id}`;
@@ -406,7 +424,20 @@ export class RunExecutor {
         sourceCount: sources.length,
         deploymentId,
         usage,
+        guardrail,
       }).catch((err) => this.log.warn({ err }, "webhook enqueue failed"));
+      if (guardrail) {
+        void emitWebhook(sql, job.tenantId, "guardrail.triggered", {
+          conversationId: job.conversationId,
+          widgetId: job.widgetId,
+          assistantId: a.id,
+          runId: job.runId,
+          subject: job.subject,
+          rule: guardrail.kind,
+          detail: guardrail.detail,
+          question: { id: job.userMessage.id, content: job.userMessage.content },
+        }).catch((err) => this.log.warn({ err }, "webhook enqueue failed"));
+      }
       metrics.runs.inc({ status: "completed", deployment: deploymentId ?? "none" });
       metrics.tokens.inc({ direction: "input", deployment: deploymentId ?? "none" }, usage.inputTokens);
       metrics.tokens.inc({ direction: "output", deployment: deploymentId ?? "none" }, usage.outputTokens);

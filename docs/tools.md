@@ -147,7 +147,8 @@ Webhooks follow the [Standard Webhooks](https://www.standardwebhooks.com/) speci
 | Event | Data |
 |---|---|
 | `conversation.created` | `{ conversation, subject }` |
-| `message.completed` | `{ conversationId, widgetId, assistantId, runId, subject, question, answer, tools, sourceCount, deploymentId, usage }` |
+| `message.completed` | `{ conversationId, widgetId, assistantId, runId, subject, question, answer, tools, sourceCount, deploymentId, usage, guardrail }` (`guardrail` is null unless a [guardrail](quality.md) refused or replaced the answer) |
+| `guardrail.triggered` | `{ conversationId, widgetId, assistantId, runId, subject, rule, detail, question }`: a [guardrail](quality.md) refused a question (`term`, `topic`, `harmful`, `injection`) or replaced an answer (`answer_term`) |
 | `feedback.submitted` | `{ conversationId, messageId, rating, comment }` |
 | `handoff.requested` | `{ conversation, subject, trigger, reason, summary, pageContext, transcript, requestedAt }` |
 | `message.received` | `{ conversationId, message, assignee, subject }`: the visitor wrote while a person handles the conversation |

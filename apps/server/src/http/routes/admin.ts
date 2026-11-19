@@ -132,7 +132,7 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
       return c.json(toAssistant(a));
     });
 
-  route(app, { method: "delete", path: "/v1/admin/assistants/{id}", tag: A, summary: "Delete an assistant (and its widgets)", auth: "admin", response: { status: 204 } },
+  route(app, { method: "delete", path: "/v1/admin/assistants/{id}", tag: A, summary: "Delete an assistant (and its widgets and evaluation suites)", auth: "admin", response: { status: 204 } },
     async (c) => {
       if (!(await deleteAssistant(sql, tid(c), param(c, "id")))) throw notFound("assistant");
       return c.body(null, 204);

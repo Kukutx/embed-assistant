@@ -163,6 +163,7 @@ const VIEWS = {
   actions: { title: "Actions", render: actions, perm: "config:read" },
   mcp: { title: "MCP servers", render: mcpServers, perm: "config:read" },
   conversations: { title: "Conversations", render: conversations, perm: "conversations:read" },
+  evals: { title: "Evaluations", render: evals, perm: "config:read" },
   webhooks: { title: "Webhooks", render: webhooks, perm: "config:read" },
   team: { title: "Team and sign-in", render: team, perm: "security:manage" },
   audit: { title: "Audit log", render: auditLog, perm: "security:manage" },
@@ -285,6 +286,12 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
     handoffMessage: h("input", { value: a?.handoff?.message ?? "I've passed this conversation to our team. Someone will get back to you as soon as possible." }),
     handoffUrl: h("input", { value: a?.handoff?.url ?? "", placeholder: "https://example.com/contact (optional)" }),
     handoffLabel: h("input", { value: a?.handoff?.label ?? "", placeholder: "Talk to a person" }),
+    blockedTerms: h("textarea", { value: (a?.guardrails?.blockedTerms ?? []).join("\n"), rows: 3, placeholder: "One word or phrase per line" }),
+    blockedTopics: h("textarea", { value: (a?.guardrails?.blockedTopics ?? []).join("\n"), rows: 3, placeholder: "e.g. medical diagnosis\ncompetitor products" }),
+    moderation: h("input", { type: "checkbox", checked: a?.guardrails?.moderation ?? false }),
+    promptInjection: h("input", { type: "checkbox", checked: a?.guardrails?.promptInjection ?? false }),
+    checkAnswers: h("input", { type: "checkbox", checked: a?.guardrails?.checkAnswers ?? true }),
+    refusalMessage: h("input", { value: a?.guardrails?.refusalMessage ?? "Sorry, I can't help with that. Is there something else I can help you with?", maxlength: 1000 }),
   };
   const actionChecks = actionList.map((x) => {
     const c = h("input", { type: "checkbox", value: x.id, checked: a?.actionIds?.includes(x.id) });
@@ -328,6 +335,15 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
             url: f.handoffUrl.value.trim() || null,
             label: f.handoffLabel.value.trim() || null,
           },
+          guardrails: {
+            blockedTerms: lines(f.blockedTerms.value),
+            blockedTopics: lines(f.blockedTopics.value),
+            moderation: f.moderation.checked,
+            promptInjection: f.promptInjection.checked,
+            checkAnswers: f.checkAnswers.checked,
+            refusalMessage: f.refusalMessage.value.trim() || undefined,
+            ...(a?.guardrails?.supportMessage ? { supportMessage: a.guardrails.supportMessage } : {}),
+          },
         };
         try {
           await api(a ? "PATCH" : "POST", a ? `/assistants/${a.id}` : "/assistants", body);
@@ -354,6 +370,16 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
       h("label", { class: "check" }, f.handoffEnabled, "Offer “talk to a person” (delivered through the handoff.requested webhook)"),
       field("Message shown to the visitor", f.handoffMessage),
       h("div", { class: "two" }, field("Contact link", f.handoffUrl), field("Button label", f.handoffLabel)),
+    ),
+    h(
+      "fieldset",
+      { class: "box" },
+      h("legend", { text: "Guardrails" }),
+      h("div", { class: "two" }, field("Blocked terms", f.blockedTerms, "Questions containing one are refused without calling the model."), field("Blocked topics", f.blockedTopics, "Checked by a classifier on the fast model.")),
+      h("label", { class: "check" }, f.moderation, "Refuse harmful requests (violence, weapons, self-harm, sexual content, hate, illegal activity)"),
+      h("label", { class: "check" }, f.promptInjection, "Refuse attempts to override the instructions or reveal the prompt"),
+      h("label", { class: "check" }, f.checkAnswers, "Replace answers that contain a blocked term"),
+      field("Refusal message", f.refusalMessage),
     ),
     h(
       "fieldset",
@@ -866,7 +892,16 @@ async function insights(main) {
     list(
       "Knowledge gaps",
       "Questions for which no relevant knowledge was found. Writing or fixing these docs improves answers the most.",
-      ins.knowledgeGaps.map((q) => h("tr", {}, h("td", { text: q.question }), h("td", { class: "small muted", text: `${q.count}×` }), h("td", { class: "small muted", text: fmtDate(q.lastAskedAt) }))),
+      ins.knowledgeGaps.map((q) =>
+        h(
+          "tr",
+          {},
+          h("td", { text: q.question }),
+          h("td", { class: "small muted", text: `${q.count}×` }),
+          h("td", { class: "small muted", text: fmtDate(q.lastAskedAt) }),
+          allowed("config:write") ? h("td", { class: "row" }, h("button", { class: "btn", text: "Add to evals", onclick: () => addToSuite(q.question) })) : null,
+        ),
+      ),
       "No gaps in this period.",
     ),
     list(
@@ -894,8 +929,22 @@ async function insights(main) {
       ins.tools.map((t) => h("tr", {}, h("td", {}, h("code", { text: t.name })), h("td", { class: "small", text: `${t.calls} calls` }), h("td", { class: `small${t.errors ? " bad" : " muted"}`, text: `${t.errors} errors` }))),
       "No tool calls in this period.",
     ),
+    list(
+      "Guardrails",
+      "Questions refused and answers replaced by the assistants' guardrails.",
+      ins.guardrails.map((g) => h("tr", {}, h("td", { text: GUARDRAIL_LABELS[g.kind] ?? g.kind }), h("td", { class: "small", text: `${g.count}×` }))),
+      "Nothing was blocked in this period.",
+    ),
   );
 }
+
+const GUARDRAIL_LABELS = {
+  term: "Blocked term in the question",
+  topic: "Blocked topic",
+  harmful: "Harmful request (moderation)",
+  injection: "Prompt injection attempt",
+  answer_term: "Answer contained a blocked term (replaced)",
+};
 
 // ------------------------------------------------------------------ actions
 async function actions(main) {
@@ -1715,6 +1764,414 @@ async function auditLog(main) {
     h("div", { class: "card" }, h("table", {}, h("thead", {}, h("tr", {}, ["When", "Action", "Target", "By", "IP", ""].map((x) => h("th", { text: x })))), table), more),
   );
   await load(true);
+}
+
+// ------------------------------------------------------------------ evaluations
+const pctOf = (x) => (x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`);
+const runBadge = (r) =>
+  r.status === "completed"
+    ? h("span", { class: `badge ${r.passed === r.total ? "ok" : "warn"}`, text: `${r.passed}/${r.total} passed` })
+    : h("span", { class: `badge${r.status === "failed" ? " bad" : ""}`, text: r.status === "running" ? `running ${r.completed}/${r.total}` : r.status });
+
+async function evals(main) {
+  const id = location.hash.split(/[/?]/)[2];
+  if (id) return evalSuite(main, id);
+  const [suites, assistantsList] = await Promise.all([api("GET", "/evals"), api("GET", "/assistants")]);
+  const names = new Map(assistantsList.map((a) => [a.id, a.name]));
+  const canWrite = allowed("config:write");
+  main.append(
+    h("p", { class: "muted", text: "Test suites of real questions with what a good answer must contain. Run them after changing instructions, models, knowledge or guardrails to measure quality and catch regressions before visitors do." }),
+    canWrite ? h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn primary", text: "New suite", onclick: () => suiteForm(null, assistantsList) })) : "",
+    h(
+      "div",
+      { class: "card" },
+      suites.items.length
+        ? h(
+            "table",
+            {},
+            h("thead", {}, h("tr", {}, ["Suite", "Assistant", "Cases", "Last run", "Score", ""].map((x) => h("th", { text: x })))),
+            h(
+              "tbody",
+              {},
+              suites.items.map((x) =>
+                h(
+                  "tr",
+                  {},
+                  h("td", {}, h("strong", { text: x.name }), x.description ? h("div", { class: "small muted", text: x.description }) : null),
+                  h("td", { class: "small", text: names.get(x.assistantId) ?? x.assistantId }),
+                  h("td", { text: String(x.caseCount) }),
+                  h("td", {}, x.lastRun ? runBadge(x.lastRun) : h("span", { class: "muted small", text: "never" }), x.lastRun ? h("div", { class: "small muted", text: fmtDate(x.lastRun.createdAt) }) : null),
+                  h("td", { text: pctOf(x.lastRun?.score) }),
+                  h("td", { class: "row" }, h("button", { class: "btn", text: "Open", onclick: () => (location.hash = `#/evals/${x.id}`) })),
+                ),
+              ),
+            ),
+          )
+        : h("p", { class: "muted", text: "No suites yet. Start with 10-20 questions visitors really ask (Insights lists them), each with a phrase the answer must contain." }),
+    ),
+  );
+}
+
+function suiteForm(suite, assistantsList, done = () => route()) {
+  const f = {
+    name: h("input", { value: suite?.name ?? "", required: true, maxlength: 100 }),
+    description: h("input", { value: suite?.description ?? "", maxlength: 1000 }),
+    assistantId: h("select", {}, assistantsList.map((a) => h("option", { value: a.id, text: a.name }))),
+  };
+  if (suite) f.assistantId.value = suite.assistantId;
+  const msg = h("div");
+  const dlg = modal(
+    suite ? "Edit suite" : "New evaluation suite",
+    h(
+      "form",
+      {
+        onsubmit: async (e) => {
+          e.preventDefault();
+          try {
+            const body = { name: f.name.value.trim(), description: f.description.value.trim(), assistantId: f.assistantId.value };
+            const out = await api(suite ? "PATCH" : "POST", suite ? `/evals/${suite.id}` : "/evals", body);
+            dlg.close();
+            if (suite) done();
+            else location.hash = `#/evals/${out.id}`;
+          } catch (err) {
+            msg.replaceChildren(notice(errorText(err), true));
+          }
+        },
+      },
+      field("Name", f.name),
+      field("Description", f.description),
+      field("Assistant", f.assistantId),
+      msg,
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: suite ? "Save" : "Create" })),
+    ),
+  );
+}
+
+function caseForm(suiteId, c, done) {
+  const f = {
+    question: h("textarea", { value: c?.question ?? "", rows: 2, required: true, maxlength: 4000 }),
+    expectedAnswer: h("textarea", { value: c?.expectedAnswer ?? "", rows: 3, placeholder: "Optional. A model judge scores the answer against it (1-5)." }),
+    mustInclude: h("textarea", { value: (c?.mustInclude ?? []).join("\n"), rows: 2, placeholder: "One phrase per line" }),
+    mustNotInclude: h("textarea", { value: (c?.mustNotInclude ?? []).join("\n"), rows: 2, placeholder: "One phrase per line" }),
+    expectedSources: h("textarea", { value: (c?.expectedSources ?? []).join("\n"), rows: 2, placeholder: "URL, document id or part of a title, one per line" }),
+    expectedOutcome: h("select", {}, h("option", { value: "", text: "Not checked" }), ["answer", "refuse", "handoff"].map((x) => h("option", { value: x, text: x }))),
+    access: h("input", { value: (c?.access ?? []).join(", "), placeholder: "e.g. customers, staff" }),
+    tags: h("input", { value: (c?.tags ?? []).join(", ") }),
+  };
+  f.expectedOutcome.value = c?.expectedOutcome ?? "";
+  const msg = h("div");
+  const dlg = modal(
+    c ? "Edit case" : "Add case",
+    h(
+      "form",
+      {
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const body = {
+            question: f.question.value.trim(),
+            expectedAnswer: f.expectedAnswer.value.trim() || null,
+            mustInclude: lines(f.mustInclude.value),
+            mustNotInclude: lines(f.mustNotInclude.value),
+            expectedSources: lines(f.expectedSources.value),
+            expectedOutcome: f.expectedOutcome.value || null,
+            access: csv(f.access.value),
+            tags: csv(f.tags.value),
+          };
+          try {
+            if (c) await api("PATCH", `/evals/${suiteId}/cases/${c.id}`, body);
+            else await api("POST", `/evals/${suiteId}/cases`, { cases: [body] });
+            dlg.close();
+            done();
+          } catch (err) {
+            msg.replaceChildren(notice(errorText(err), true));
+          }
+        },
+      },
+      field("Question", f.question),
+      field("Reference answer", f.expectedAnswer),
+      h("div", { class: "two" }, field("Must include", f.mustInclude), field("Must not include", f.mustNotInclude)),
+      h("div", { class: "two" }, field("Must cite", f.expectedSources), field("Expected behaviour", f.expectedOutcome, "refuse = a guardrail or the model declines; handoff = passed to a person.")),
+      h("div", { class: "two" }, field("Visitor access groups", f.access, "Besides public; for restricted knowledge."), field("Tags", f.tags)),
+      msg,
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: c ? "Save" : "Add" })),
+    ),
+    { wide: true },
+  );
+}
+
+/** Paste JSON (an array), JSON Lines, or plain questions one per line. */
+function parseCases(text) {
+  const t = text.trim();
+  if (!t) return [];
+  if (t.startsWith("[")) return JSON.parse(t);
+  return t
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => (l.startsWith("{") ? JSON.parse(l) : { question: l }));
+}
+
+function importCases(suiteId, done) {
+  const area = h("textarea", { rows: 12, class: "mono", placeholder: 'How do I reset my password?\n{"question": "Do you ship to Canada?", "mustInclude": ["Canada"], "expectedOutcome": "answer"}' });
+  const msg = h("div");
+  const dlg = modal(
+    "Import cases",
+    h(
+      "form",
+      {
+        onsubmit: async (e) => {
+          e.preventDefault();
+          try {
+            const cases = parseCases(area.value);
+            if (!cases.length) throw new Error("Nothing to import.");
+            await api("POST", `/evals/${suiteId}/cases`, { cases });
+            dlg.close();
+            done();
+          } catch (err) {
+            msg.replaceChildren(notice(errorText(err), true));
+          }
+        },
+      },
+      h("p", { class: "muted small", text: "One question per line, JSON Lines, or a JSON array of cases (fields: question, expectedAnswer, mustInclude, mustNotInclude, expectedSources, expectedOutcome, access, tags). Up to 500 per suite." }),
+      area,
+      msg,
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Import" })),
+    ),
+    { wide: true },
+  );
+}
+
+/** Ask which suite to add a question to (from Insights). */
+async function addToSuite(question) {
+  const suites = (await api("GET", "/evals")).items;
+  if (!suites.length) {
+    location.hash = "#/evals";
+    return;
+  }
+  const select = h("select", {}, suites.map((x) => h("option", { value: x.id, text: x.name })));
+  const q = h("textarea", { value: question, rows: 2 });
+  const must = h("textarea", { rows: 2, placeholder: "One phrase per line (optional)" });
+  const msg = h("div");
+  const dlg = modal(
+    "Add to evaluation suite",
+    h(
+      "form",
+      {
+        onsubmit: async (e) => {
+          e.preventDefault();
+          try {
+            await api("POST", `/evals/${select.value}/cases`, { cases: [{ question: q.value.trim(), mustInclude: lines(must.value) }] });
+            dlg.close();
+          } catch (err) {
+            msg.replaceChildren(notice(errorText(err), true));
+          }
+        },
+      },
+      field("Suite", select),
+      field("Question", q),
+      field("Must include", must),
+      msg,
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Add" })),
+    ),
+  );
+}
+
+async function evalSuite(main, id) {
+  const [suite, cases, runs, assistantsList] = await Promise.all([
+    api("GET", `/evals/${id}`),
+    api("GET", `/evals/${id}/cases`),
+    api("GET", `/evals/${id}/runs`),
+    api("GET", "/assistants"),
+  ]);
+  const names = new Map(assistantsList.map((a) => [a.id, a.name]));
+  const canWrite = allowed("config:write");
+  const reload = () => route();
+  const active = runs.items.find((r) => r.status === "queued" || r.status === "running");
+  if (active) pollTimer = setTimeout(reload, 2000);
+  main.closest("main").querySelector(".top h1").textContent = suite.name;
+
+  const judge = h("input", { type: "checkbox", checked: true });
+  const target = h("select", {}, assistantsList.map((a) => h("option", { value: a.id, text: a.id === suite.assistantId ? `${a.name} (suite default)` : a.name })));
+  target.value = suite.assistantId;
+  const runMsg = h("div");
+  const start = async () => {
+    try {
+      await api("POST", `/evals/${id}/runs`, { judge: judge.checked, ...(target.value !== suite.assistantId ? { assistantId: target.value } : {}) });
+      reload();
+    } catch (err) {
+      runMsg.replaceChildren(notice(errorText(err), true));
+    }
+  };
+  const expectations = (c) => [
+    c.expectedAnswer ? h("span", { class: "badge", text: "reference answer" }) : null,
+    ...c.mustInclude.map((p) => h("span", { class: "badge ok", text: `+ ${p}` })),
+    ...c.mustNotInclude.map((p) => h("span", { class: "badge bad", text: `− ${p}` })),
+    ...c.expectedSources.map((p) => h("span", { class: "badge", text: `cites ${p}` })),
+    c.expectedOutcome ? h("span", { class: "badge warn", text: c.expectedOutcome }) : null,
+    ...c.tags.map((t) => h("span", { class: "badge", text: `#${t}` })),
+  ];
+  main.append(
+    suite.description ? h("p", { class: "muted", text: suite.description }) : "",
+    canWrite
+      ? h(
+          "div",
+          { class: "card" },
+          h("h2", { text: "Run" }),
+          h("div", { class: "row" }, h("label", { class: "check" }, "Assistant", target), h("label", { class: "check" }, judge, "Score reference answers with a model judge"), h("button", { class: "btn primary", text: active ? "Running…" : "Run suite", disabled: !!active || !cases.items.length, onclick: start }), active ? h("button", { class: "btn danger", text: "Cancel", onclick: async () => { await api("POST", `/eval-runs/${active.id}/cancel`); reload(); } }) : null),
+          h("p", { class: "muted small", text: "Runs answer every case like a visitor would (no conversations are stored; actions, MCP and page tools never run) and use model tokens. Pick another assistant to compare a changed copy on the same cases." }),
+          runMsg,
+        )
+      : "",
+    h(
+      "div",
+      { class: "card" },
+      h("h2", { text: "Runs" }),
+      runs.items.length
+        ? h(
+            "table",
+            {},
+            h("thead", {}, h("tr", {}, ["When", "Assistant", "Result", "Score", "Tokens", ""].map((x) => h("th", { text: x })))),
+            h(
+              "tbody",
+              {},
+              runs.items.map((r) =>
+                h(
+                  "tr",
+                  {},
+                  h("td", { class: "small", text: fmtDate(r.createdAt) }, h("div", { class: "muted", text: r.createdBy ?? "" })),
+                  h("td", { class: "small", text: `${names.get(r.assistantId) ?? r.assistantId} v${r.assistantVersion}` }),
+                  h("td", {}, runBadge(r), r.error ? h("div", { class: "small bad", text: r.error }) : null),
+                  h("td", { text: pctOf(r.score) }),
+                  h("td", { class: "small muted", text: `${r.inputTokens + r.outputTokens}` }),
+                  h("td", { class: "row" }, h("button", { class: "btn", text: "Results", onclick: () => evalRunDialog(r.id) })),
+                ),
+              ),
+            ),
+          )
+        : h("p", { class: "muted", text: "No runs yet." }),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h(
+        "div",
+        { class: "row", style: "justify-content:space-between;margin-bottom:8px" },
+        h("h2", { text: `Cases (${cases.items.length})`, style: "margin:0" }),
+        canWrite
+          ? h(
+              "div",
+              { class: "row" },
+              h("button", { class: "btn primary", text: "Add case", onclick: () => caseForm(id, null, reload) }),
+              h("button", { class: "btn", text: "Import", onclick: () => importCases(id, reload) }),
+              h("button", { class: "btn", text: "Export", onclick: () => saveJson(`${suite.name}.json`, cases.items.map(({ id: _i, createdAt: _c, updatedAt: _u, ...rest }) => rest)) }),
+              h("button", { class: "btn", text: "Edit suite", onclick: () => suiteForm(suite, assistantsList, reload) }),
+              h("button", {
+                class: "btn danger",
+                text: "Delete suite",
+                onclick: async () => {
+                  if (!confirm(`Delete "${suite.name}" with its cases and runs?`)) return;
+                  await api("DELETE", `/evals/${id}`);
+                  location.hash = "#/evals";
+                },
+              }),
+            )
+          : null,
+      ),
+      cases.items.length
+        ? h(
+            "table",
+            {},
+            h(
+              "tbody",
+              {},
+              cases.items.map((c) =>
+                h(
+                  "tr",
+                  {},
+                  h("td", {}, h("div", { text: c.question }), h("div", { class: "row", style: "margin-top:4px" }, expectations(c))),
+                  canWrite
+                    ? h(
+                        "td",
+                        { class: "row" },
+                        h("button", { class: "btn", text: "Edit", onclick: () => caseForm(id, c, reload) }),
+                        h("button", { class: "btn danger", text: "Delete", onclick: async () => { await api("DELETE", `/evals/${id}/cases/${c.id}`); reload(); } }),
+                      )
+                    : null,
+                ),
+              ),
+            ),
+          )
+        : h("p", { class: "muted", text: "No cases yet." }),
+    ),
+  );
+}
+
+function saveJson(filename, data) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  const a = h("a", { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function evalRunDialog(runId) {
+  const run = await api("GET", `/eval-runs/${runId}`);
+  const failedFirst = [...run.results].sort((a, b) => Number(a.passed) - Number(b.passed));
+  const change = (r) => {
+    if (!r.previous) return null;
+    if (r.previous.passed && !r.passed) return h("span", { class: "badge bad", text: "regression" });
+    if (!r.previous.passed && r.passed) return h("span", { class: "badge ok", text: "fixed" });
+    const d = r.score - r.previous.score;
+    return Math.abs(d) >= 0.05 ? h("span", { class: `badge ${d > 0 ? "ok" : "warn"}`, text: `${d > 0 ? "+" : ""}${Math.round(d * 100)} pts` }) : null;
+  };
+  const regressions = run.results.filter((r) => r.previous?.passed && !r.passed).length;
+  modal(
+    `Run ${fmtDate(run.createdAt)}`,
+    h(
+      "div",
+      {},
+      h(
+        "div",
+        { class: "grid", style: "margin-bottom:12px" },
+        ...[
+          ["Passed", `${run.passed}/${run.total}`],
+          ["Score", pctOf(run.score)],
+          ["Regressions", run.previousRunId ? String(regressions) : "—"],
+          ["Tokens", String(run.inputTokens + run.outputTokens)],
+        ].map(([k, v]) => h("div", { class: "card stat" }, h("div", { class: "v", text: v }), h("div", { class: "k", text: k }))),
+      ),
+      h(
+        "table",
+        {},
+        h(
+          "tbody",
+          {},
+          failedFirst.map((r) =>
+            h(
+              "tr",
+              {},
+              h(
+                "td",
+                {},
+                h("div", { class: "row" }, h("span", { class: `badge ${r.passed ? "ok" : "bad"}`, text: r.passed ? "pass" : "fail" }), h("strong", { text: r.question }), change(r)),
+                h("div", { class: "small clamp", style: "margin-top:4px", text: r.error ? `Error: ${r.error}` : r.answer }),
+                h(
+                  "div",
+                  { class: "row small", style: "margin-top:4px" },
+                  r.checks.map((c) => h("span", { class: `badge ${c.passed ? "ok" : "bad"}`, title: c.detail ?? "", text: `${c.name.replace(/_/g, " ")} ${Math.round(c.score * 100)}%${c.detail && !c.passed ? `: ${c.detail}` : ""}` })),
+                  r.guardrail ? h("span", { class: "badge warn", text: `guardrail: ${r.guardrail}` }) : null,
+                  r.citations.length ? h("span", { class: "muted", text: `cites ${r.citations.map((c) => c.title).join(", ")}` }) : null,
+                ),
+              ),
+              h("td", { class: "small muted", style: "white-space:nowrap", text: `${pctOf(r.score)} · ${(r.latencyMs / 1000).toFixed(1)}s` }),
+            ),
+          ),
+        ),
+      ),
+    ),
+    { wide: true },
+  );
 }
 
 // ------------------------------------------------------------------ shell + router

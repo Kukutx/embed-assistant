@@ -2,6 +2,16 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.7
+
+Safe and measurable answers.
+
+- **Guardrails** per assistant: blocked terms (Unicode-aware, whole words or substrings for scripts without spaces), blocked topics in plain language, moderation of harmful requests (with a supportive message for self-harm), prompt-injection detection, and a streaming answer check that replaces answers containing a blocked term before it reaches the visitor. The classifier runs in parallel with retrieval and fails open. Refusals are recorded per run, counted in Insights and sent as the new `guardrail.triggered` webhook event; `message.completed` carries `guardrail`.
+- **Evaluations**: suites of cases (required and forbidden phrases, expected citations, expected behaviour, reference answers scored by a model judge), run in the background job queue without side effects, with per-case results compared to the previous run to show regressions and fixes. Run a suite against another assistant to compare configurations. `/v1/admin/evals`, `/v1/admin/eval-runs`, an *Evaluations* page in the console (import, export, run, results), and *Add to evals* from Insights.
+- The MCP `ask` tool now uses the same answer path as the widget: guardrails and agentic knowledge search apply there too.
+- Metrics: `ea_guardrail_checks_total`, `ea_eval_cases_total`.
+- Insights no longer count refused questions as knowledge gaps.
+
 ## 1.0.6
 
 People can step in.
