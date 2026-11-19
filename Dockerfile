@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # embed-assistant server image: API + widget bundle + admin console in one process.
 
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable
 WORKDIR /src
@@ -17,7 +17,7 @@ RUN pnpm -r build \
  && pnpm --filter @embed-assistant/server deploy --prod --legacy /out \
  && cp -r packages/widget/dist /out/widget
 
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 LABEL org.opencontainers.image.source="https://github.com/Kukutx/embed-assistant" \
       org.opencontainers.image.description="Embeddable, model-agnostic AI assistant" \
       org.opencontainers.image.licenses="Apache-2.0"
