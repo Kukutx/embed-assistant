@@ -205,7 +205,7 @@ async function overview(main) {
               "tr",
               {},
               h("td", {}, h("code", { text: m.alias })),
-              h("td", {}, m.deployments.map((d) => h("span", { class: `badge ${d.available ? "ok" : ""}`, title: d.available ? "available" : "not configured", text: `${d.id} · ${d.model}` }), " ")),
+              h("td", {}, m.deployments.map((d) => h("span", { class: `badge ${d.available ? "ok" : ""}`, title: d.available ? "available" : "not configured", text: `${d.id} · ${d.model}${d.vision ? " · sees images" : ""}` }), " ")),
             ),
           ),
         ),
@@ -608,6 +608,7 @@ function widgetForm(w, assistantsList, done) {
     sources: h("input", { type: "checkbox", checked: w ? w.features.sources : true }),
     history: h("input", { type: "checkbox", checked: w ? w.features.history : true }),
     voice: h("input", { type: "checkbox", checked: w ? w.features.voice : false }),
+    attachments: h("input", { type: "checkbox", checked: w ? w.features.attachments : false }),
   };
   f.assistantId.value = w?.assistantId ?? assistantsList[0]?.id;
   f.mode.value = w?.theme.mode ?? "auto";
@@ -625,7 +626,7 @@ function widgetForm(w, assistantsList, done) {
           theme: { accentColor: f.accent.value, mode: f.mode.value, position: f.position.value, radius: Number(f.radius.value) },
           defaultLocale: f.locale.value.trim() || null,
           dailyTokenBudget: f.budget.value ? Number(f.budget.value) : null,
-          features: { feedback: f.feedback.checked, sources: f.sources.checked, history: f.history.checked, voice: f.voice.checked },
+          features: { feedback: f.feedback.checked, sources: f.sources.checked, history: f.history.checked, voice: f.voice.checked, attachments: f.attachments.checked },
         };
         try {
           const r = await api(w ? "PATCH" : "POST", w ? `/widgets/${w.id}` : "/widgets", body);
@@ -642,7 +643,7 @@ function widgetForm(w, assistantsList, done) {
     h("div", { class: "two" }, field("Accent color", f.accent), field("Theme", f.mode)),
     h("div", { class: "two" }, field("Position", f.position), field("Corner radius", f.radius)),
     h("div", { class: "two" }, field("Default UI language", f.locale), field("Daily token budget", f.budget)),
-    h("div", { class: "row" }, h("label", { class: "check" }, f.feedback, "Feedback buttons"), h("label", { class: "check" }, f.sources, "Show sources"), h("label", { class: "check" }, f.history, "Conversation history"), h("label", { class: "check" }, f.voice, "Voice input")),
+    h("div", { class: "row" }, h("label", { class: "check" }, f.feedback, "Feedback buttons"), h("label", { class: "check" }, f.sources, "Show sources"), h("label", { class: "check" }, f.history, "Conversation history"), h("label", { class: "check" }, f.voice, "Voice input"), h("label", { class: "check", title: "Visitors can attach screenshots. Needs a model that can see images (see Models)." }, f.attachments, "Image attachments")),
     h("p", { class: "muted small", style: "margin-top:4px", text: "Voice input uses the browser's speech recognition; Chrome and Edge send the audio to their vendor's speech service, Safari may process it on the device." }),
     msg,
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: w ? "Save" : "Create" })),
@@ -968,10 +969,31 @@ async function transcript(c) {
           traceButton(traces.get(m.id)),
         ),
         h("div", { class: "body", text: m.content }),
+        attachmentThumbs(c.id, m),
         m.citations.length ? h("div", { class: "small muted", text: `Sources: ${m.citations.map((x) => `[${x.index}] ${x.title}`).join(" · ")}` }) : null,
       ),
     ),
   );
+}
+
+/** Images a visitor attached, fetched with the admin key (an <img src> cannot send it). */
+function attachmentThumbs(conversationId, m) {
+  if (!m.attachments?.length) return null;
+  const row = h("div", { class: "thumbs" });
+  for (const a of m.attachments) {
+    const img = h("img", { alt: a.name || "Attached image", title: a.name || "" });
+    const btn = h("button", { class: "thumb", type: "button", "aria-label": `Open ${a.name || "image"}` }, img);
+    row.append(btn);
+    fetch(`/v1/admin/conversations/${encodeURIComponent(conversationId)}/attachments/${encodeURIComponent(a.id)}`, { headers: { authorization: `Bearer ${getKey()}` } })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((b) => {
+        const url = URL.createObjectURL(b);
+        img.src = url;
+        btn.onclick = () => modal(a.name || "Attached image", h("img", { src: url, alt: a.name || "Attached image", style: "max-width:100%;height:auto" }), { wide: true });
+      })
+      .catch(() => btn.replaceChildren(h("span", { class: "small muted", text: "image unavailable" })));
+  }
+  return row;
 }
 
 /** Traces of a conversation's answers, by answer message id. */
@@ -1811,6 +1833,7 @@ async function conversationPane(pane, id, conv, canReply, refresh) {
           { class: `bubble ${m.role === "user" ? "visitor" : m.author ? "person" : "ai"}` },
           h("div", { class: "who" }, m.role === "user" ? "Visitor" : m.author ? m.author.name : "Assistant", traceButton(traces.get(m.id))),
           h("div", { class: "body", text: m.content }),
+          attachmentThumbs(id, m),
           h("div", { class: "small muted", text: fmtDate(m.createdAt) }),
         ),
       ),

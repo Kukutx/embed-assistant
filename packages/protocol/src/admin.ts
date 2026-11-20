@@ -213,6 +213,8 @@ export const Widget = z.object({
     history: z.boolean(),
     /** Microphone button (the browser's speech recognition; some browsers send audio to their vendor's service). */
     voice: z.boolean(),
+    /** Visitors can attach images (screenshots). Needs a model that can see images. */
+    attachments: z.boolean(),
   }),
   /** Daily cap of model tokens for this widget; null = tenant default. */
   dailyTokenBudget: z.number().int().positive().nullable(),
@@ -235,6 +237,7 @@ const FeaturesInput = z.object({
   sources: z.boolean().default(true),
   history: z.boolean().default(true),
   voice: z.boolean().default(false),
+  attachments: z.boolean().default(false),
 });
 
 const WidgetFields = {
@@ -253,7 +256,7 @@ export const WidgetInput = z.object({
   allowedOrigins: WidgetFields.allowedOrigins.default([]),
   theme: ThemeInput.default({ accentColor: "#2563eb", mode: "auto", position: "bottom-right", radius: 16 }),
   defaultLocale: WidgetFields.defaultLocale.default(null),
-  features: FeaturesInput.default({ feedback: true, sources: true, history: true, voice: false }),
+  features: FeaturesInput.default({ feedback: true, sources: true, history: true, voice: false, attachments: false }),
   dailyTokenBudget: WidgetFields.dailyTokenBudget.default(null),
 });
 export type WidgetInput = z.infer<typeof WidgetInput>;
@@ -349,7 +352,7 @@ export type KnowledgeDocument = z.infer<typeof KnowledgeDocument>;
 export const ModelAliasInfo = z.object({
   alias: z.string(),
   deployments: z.array(
-    z.object({ id: z.string(), provider: z.string(), model: z.string(), available: z.boolean() }),
+    z.object({ id: z.string(), provider: z.string(), model: z.string(), available: z.boolean(), vision: z.boolean().optional() }),
   ),
 });
 export type ModelAliasInfo = z.infer<typeof ModelAliasInfo>;

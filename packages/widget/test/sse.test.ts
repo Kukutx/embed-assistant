@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { parseSse } from "../src/client.js";
 import { stringsFor } from "../src/i18n.js";
+import * as protocol from "@embed-assistant/protocol";
+import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MEDIA_TYPES, ATTACHMENTS_PER_MESSAGE } from "../src/shared.js";
+
+describe("attachment limits", () => {
+  it("match the server's", () => {
+    expect(ATTACHMENT_MEDIA_TYPES).toEqual([...protocol.ATTACHMENT_MEDIA_TYPES]);
+    expect(ATTACHMENT_MAX_BYTES).toBe(protocol.ATTACHMENT_MAX_BYTES);
+    expect(ATTACHMENTS_PER_MESSAGE).toBe(protocol.ATTACHMENTS_PER_MESSAGE);
+  });
+});
 
 function streamOf(...parts: string[]): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();

@@ -83,6 +83,8 @@ export const PublicWidgetConfig = z.object({
     history: z.boolean(),
     /** Voice input. Absent on servers older than 1.0.10. */
     voice: z.boolean().optional(),
+    /** Visitors can attach images (enabled on the widget and the assistant's model can see images). Absent before 1.0.12. */
+    attachments: z.boolean().optional(),
   }),
   /** The assistant remembers signed-in users across conversations (they can review and erase it). */
   memory: z.boolean().optional(),
@@ -157,6 +159,21 @@ export const MessageRole = z.enum(["user", "assistant"]);
 export const MessageStatus = z.enum(["streaming", "complete", "failed", "cancelled"]);
 export const Feedback = z.enum(["up", "down"]);
 
+/** An image attached to a question (a screenshot, a photo of an error...). */
+export const Attachment = z.object({
+  id: Id,
+  mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+  name: z.string().nullable(),
+  /** Bytes. */
+  size: z.number().int().nonnegative(),
+});
+export type Attachment = z.infer<typeof Attachment>;
+/** Accepted image types (Claude, OpenAI and most vision models accept these). */
+export const ATTACHMENT_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+/** 3.75 MiB raw = 5 MiB base64, the strictest common provider limit (e.g. Claude on Bedrock). */
+export const ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024 + 768 * 1024;
+export const ATTACHMENTS_PER_MESSAGE = 4;
+
 export const Message = z.object({
   id: Id,
   conversationId: Id,
@@ -170,6 +187,8 @@ export const Message = z.object({
   suggestions: z.array(z.string()).optional(),
   /** Set when a person on the team wrote this assistant-side message (absent or null = the AI assistant). */
   author: z.object({ type: z.literal("human"), name: z.string() }).nullable().optional(),
+  /** Images the visitor attached to this question (user messages only). */
+  attachments: z.array(Attachment).optional(),
   createdAt: Timestamp,
 });
 export type Message = z.infer<typeof Message>;
@@ -238,6 +257,8 @@ export const CreateRunRequest = z.object({
   context: PageContext.optional(),
   /** Tools the host page offers for this question (ignored unless the assistant allows page tools). */
   clientTools: z.array(ClientToolDef).max(20).optional(),
+  /** Images uploaded with POST /v1/conversations/{id}/attachments, sent with this question. */
+  attachmentIds: z.array(Id).max(ATTACHMENTS_PER_MESSAGE).optional(),
   /** Client-generated key; resubmitting the same key returns the same run. */
   idempotencyKey: z
     .string()

@@ -125,3 +125,8 @@ export const CHAT_ICON =
   '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
 export const CLOSE_ICON =
   '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
+// Same limits as the server (protocol package), copied so the bundle does not pull in zod; a test keeps them equal.
+export const ATTACHMENT_MEDIA_TYPES: string[] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+export const ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024 + 768 * 1024;
+export const ATTACHMENTS_PER_MESSAGE = 4;

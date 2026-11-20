@@ -21,6 +21,7 @@ const FALLBACK_MODELS = /^claude-(opus-5-5|opus-5|sonnet-5-5|fable-5-1|fable-5-2
 /** Claude via the official Anthropic SDK (Messages API, streaming). */
 export class AnthropicChat implements ChatModel {
   readonly provider = "anthropic";
+  readonly vision = true;
   readonly id: string;
   readonly model: string;
   private client: Anthropic | null = null;
@@ -109,8 +110,14 @@ export class AnthropicChat implements ChatModel {
 export function toAnthropicMessages(turns: ChatTurn[]): { role: "user" | "assistant"; content: never }[] {
   const out: { role: "user" | "assistant"; content: unknown }[] = [];
   for (const t of turns) {
-    if (t.role === "user") out.push({ role: "user", content: t.content });
-    else if (t.role === "assistant") {
+    if (t.role === "user") {
+      out.push({
+        role: "user",
+        content: t.images?.length
+          ? [...t.images.map((i) => ({ type: "image", source: { type: "base64", media_type: i.mediaType, data: i.data } })), { type: "text", text: t.content }]
+          : t.content,
+      });
+    } else if (t.role === "assistant") {
       if (t.raw?.provider === "anthropic") out.push({ role: "assistant", content: t.raw.content });
       else if (t.toolCalls?.length) {
         out.push({

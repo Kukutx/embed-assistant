@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { ErrorCode, type ErrorBody } from "@embed-assistant/protocol";
+import { ATTACHMENT_MAX_BYTES, ErrorCode, type ErrorBody } from "@embed-assistant/protocol";
 import { auditTrail } from "../lib/audit.js";
 import { ApiError } from "../lib/errors.js";
 import type { AppEnv, Services } from "./env.js";
@@ -77,7 +77,13 @@ export function createApp(s: Services): Hono<AppEnv> {
   app.use("/v1/admin/*", (c, next) => (/^\/v1\/admin\/sources\/[^/]+\/files$/.test(c.req.path) ? uploadLimit(c, next) : adminLimit(c, next)));
   app.use("/mcp", bodyLimit({ maxSize: 256 * 1024, onError: tooLarge }));
   app.use("/auth/*", bodyLimit({ maxSize: 16 * 1024, onError: tooLarge }));
-  app.use("/v1/*", async (c, next) => (c.req.path.startsWith("/v1/admin/") || c.req.path.startsWith("/v1/platform/") ? next() : publicBodyLimit(c, next)));
+  // Visitor image uploads are the only large public bodies.
+  const attachmentLimit = bodyLimit({ maxSize: ATTACHMENT_MAX_BYTES + 1024, onError: tooLarge });
+  app.use("/v1/*", async (c, next) => {
+    if (c.req.path.startsWith("/v1/admin/") || c.req.path.startsWith("/v1/platform/")) return next();
+    if (c.req.method === "POST" && /^\/v1\/conversations\/[^/]+\/attachments$/.test(c.req.path)) return attachmentLimit(c, next);
+    return publicBodyLimit(c, next);
+  });
   const chatAuth = sessionAuth(s, widgets);
   for (const p of ["/v1/conversations/*", "/v1/runs/*", "/v1/messages/*", "/v1/memories/*"]) {
     app.use(p, async (c, next) => (c.req.method === "OPTIONS" ? next() : chatAuth(c, next)));
@@ -119,7 +125,7 @@ export function createApp(s: Services): Hono<AppEnv> {
       cacheControl: () => "no-cache",
       headers: {
         "content-security-policy":
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'",
       },
     });
     const demoHeaders = serveDir({ root: CONSOLE_DIR, cacheControl: () => "no-cache" });

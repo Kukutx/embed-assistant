@@ -10,6 +10,8 @@ export interface OpenAICompatibleOptions {
   apiKey?: string | undefined;
   /** Some servers (e.g. Ollama) need no key; mark them always available. */
   requiresKey: boolean;
+  /** The model accepts images (`image_url` content parts). */
+  vision?: boolean;
   timeoutMs?: number;
 }
 
@@ -21,9 +23,11 @@ export class OpenAICompatibleChat implements ChatModel {
   readonly provider = "openai-compatible";
   readonly id: string;
   readonly model: string;
+  readonly vision: boolean;
   constructor(private readonly o: OpenAICompatibleOptions) {
     this.id = o.id;
     this.model = o.model;
+    this.vision = o.vision ?? false;
   }
 
   available(): boolean {
@@ -114,8 +118,14 @@ export class OpenAICompatibleChat implements ChatModel {
 export function toOpenAIMessages(turns: ChatTurn[]): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   for (const t of turns) {
-    if (t.role === "user") out.push({ role: "user", content: t.content });
-    else if (t.role === "assistant") {
+    if (t.role === "user") {
+      out.push({
+        role: "user",
+        content: t.images?.length
+          ? [{ type: "text", text: t.content }, ...t.images.map((i) => ({ type: "image_url", image_url: { url: `data:${i.mediaType};base64,${i.data}` } }))]
+          : t.content,
+      });
+    } else if (t.role === "assistant") {
       out.push({
         role: "assistant",
         content: t.content || (t.toolCalls?.length ? null : ""),
@@ -133,7 +143,7 @@ export function toOpenAIMessages(turns: ChatTurn[]): Record<string, unknown>[] {
 export class OpenAICompatibleEmbeddings implements EmbeddingModel {
   readonly id: string;
   readonly model: string;
-  constructor(private readonly o: Omit<OpenAICompatibleOptions, "requiresKey">) {
+  constructor(private readonly o: Omit<OpenAICompatibleOptions, "requiresKey" | "vision">) {
     this.id = o.id;
     this.model = o.model;
   }

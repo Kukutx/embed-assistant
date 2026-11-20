@@ -25,6 +25,7 @@ import {
   WidgetSecret,
 } from "@embed-assistant/protocol";
 import { getVersion, listVersions } from "../../assistants/versions.js";
+import { getAttachmentData, imageResponse } from "../../attachments/attachments.js";
 import { conversationTraces } from "../../runs/trace.js";
 import {
   adminGetConversation,
@@ -417,6 +418,16 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
       const conv = await adminGetConversation(sql, tid(c), param(c, "id"));
       if (!conv) throw notFound("conversation");
       return c.json({ items: await conversationTraces(sql, tid(c), conv.id) });
+    });
+
+  route(app, {
+      method: "get", path: "/v1/admin/conversations/{id}/attachments/{attachmentId}", tag: A, summary: "Download an image a visitor attached",
+      auth: "admin", response: { status: 200, description: "The image", contentType: "image/*" },
+    },
+    async (c) => {
+      const a = await getAttachmentData(sql, tid(c), param(c, "id"), param(c, "attachmentId"));
+      if (!a) throw notFound("attachment");
+      return imageResponse(a, "private, no-store");
     });
 
   // ---------------------------------------------------------- models and usage

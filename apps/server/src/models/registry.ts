@@ -30,6 +30,8 @@ const DeploymentSchema = z.discriminatedUnion("provider", [
     baseUrl: z.string(),
     apiKey: z.string().optional(),
     requiresKey: z.boolean().default(true),
+    /** The model accepts images. Without it, attached images are replaced by a short note. */
+    vision: z.boolean().default(false),
   }),
   z.object({ id: z.string(), provider: z.literal("builtin-extractive") }),
 ]);
@@ -76,6 +78,7 @@ export function defaultModelsFile(cfg: Config): ModelsFile {
       baseUrl: cfg.OPENAI_BASE_URL,
       apiKey: cfg.OPENAI_API_KEY,
       requiresKey: true,
+      vision: cfg.OPENAI_VISION,
     });
     standard.push("openai");
     fast.push("openai");
@@ -87,6 +90,7 @@ export function defaultModelsFile(cfg: Config): ModelsFile {
       model: cfg.OLLAMA_MODEL,
       baseUrl: `${cfg.OLLAMA_BASE_URL.replace(/\/$/, "")}/v1`,
       requiresKey: false,
+      vision: cfg.OLLAMA_VISION,
     });
     standard.push("ollama");
     fast.push("ollama");
@@ -151,7 +155,7 @@ export class ModelRegistry {
       alias,
       deployments: ids.map((id) => {
         const d = this.deployments.get(id)!;
-        return { id, provider: d.provider, model: d.model, available: d.available() };
+        return { id, provider: d.provider, model: d.model, available: d.available(), vision: d.vision === true };
       }),
     }));
   }
@@ -170,6 +174,11 @@ export class ModelRegistry {
   hasLanguageModel(alias: string): boolean {
     const d = this.firstAvailable(alias);
     return !!d && d.provider !== "builtin";
+  }
+
+  /** True when the deployment that would serve the alias first can see images. */
+  supportsVision(alias: string): boolean {
+    return this.firstAvailable(alias)?.vision === true;
   }
 
   /**
@@ -230,7 +239,7 @@ export class ModelRegistry {
       });
       let finish = "stop";
       try {
-        for await (const chunk of d.stream(req)) {
+        for await (const chunk of d.stream(d.vision ? req : withoutImages(req))) {
           if (chunk.type === "text" || chunk.type === "tool_call") emitted = true;
           if (chunk.type === "tool_call") finish = "tool_calls";
           if (chunk.type === "refusal") finish = "content_filter";
@@ -258,6 +267,19 @@ export class ModelRegistry {
   }
 }
 
+/** For models that cannot see images: drop them and say so, so the model does not pretend it saw them. */
+export function withoutImages(req: ChatRequest): ChatRequest {
+  if (!req.messages.some((m) => m.role === "user" && m.images?.length)) return req;
+  return {
+    ...req,
+    messages: req.messages.map((m) => {
+      if (m.role !== "user" || !m.images?.length) return m;
+      const n = m.images.length;
+      return { role: "user", content: `${m.content}\n\n[The user attached ${n === 1 ? "an image" : `${n} images`}, but you cannot see images. If it matters, ask them to describe it in words.]` };
+    }),
+  };
+}
+
 function buildDeployment(d: ModelsFile["deployments"][number]): ChatModel {
   switch (d.provider) {
     case "anthropic":
@@ -276,6 +298,7 @@ function buildDeployment(d: ModelsFile["deployments"][number]): ChatModel {
         baseUrl: d.baseUrl,
         apiKey: d.apiKey || undefined,
         requiresKey: d.requiresKey,
+        vision: d.vision,
       });
     case "builtin-extractive":
       return new ExtractiveChat(d.id);

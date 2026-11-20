@@ -2,6 +2,9 @@ import type { Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import {
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_MEDIA_TYPES,
+  Attachment,
   Conversation,
   ConversationList,
   CreateConversationRequest,
@@ -40,6 +43,15 @@ import { newId } from "../../lib/ids.js";
 import { redactPii } from "../../lib/pii.js";
 import { tokensUsedToday } from "../../lib/rateLimit.js";
 import { requestHandoff } from "../../runs/handoff.js";
+import {
+  claimAttachments,
+  cleanName,
+  createAttachment,
+  deleteUnsentAttachment,
+  getAttachmentData,
+  imageResponse,
+  sniffImage,
+} from "../../attachments/attachments.js";
 import { emitWebhook } from "../../webhooks/webhooks.js";
 import { iso } from "../../lib/time.js";
 import { param, route } from "../define.js";
@@ -54,6 +66,8 @@ const EventsQuery = z.object({
   /** Resume after this sequence number (alternative to the Last-Event-ID header). */
   after: z.coerce.number().int().min(0).optional(),
 });
+
+const UploadQuery = z.object({ name: z.string().max(500).optional() });
 
 const SSE_KEEPALIVE_MS = 15_000;
 const SSE_POLL_MS = 2_000;
@@ -193,6 +207,78 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
     },
   );
 
+  /** Images are accepted when the widget allows them and the assistant's model can see them. */
+  const attachmentsOn = (widget: { features: { attachments?: boolean } }, modelAlias: string) =>
+    widget.features.attachments === true && s.models.supportsVision(modelAlias);
+
+  route(
+    app,
+    {
+      method: "post",
+      path: "/v1/conversations/{id}/attachments",
+      tag: "Chat",
+      summary: "Upload an image to send with the next question",
+      description:
+        "The request body is the image itself (PNG, JPEG, GIF or WebP, at most 3.75 MiB; the type is detected from the bytes), " +
+        "with an optional `?name=` for display. Send the returned id in `attachmentIds` of POST /runs. " +
+        "Uploads not sent within 24 hours are deleted. Only when the widget enables attachments and the model can see images.",
+      auth: "session",
+      query: UploadQuery,
+      rawBody: [...ATTACHMENT_MEDIA_TYPES],
+      response: { status: 201, schema: Attachment },
+    },
+    async (c, { query }) => {
+      const sess = c.get("session");
+      const widget = c.get("widget");
+      const conv = await ownedConversationOr404(c, param(c, "id"));
+      const assistant = await getAssistant(sql, conv.tenant_id, conv.assistant_id);
+      if (!assistant || !attachmentsOn(widget, assistant.model_alias)) throw badRequest("image attachments are not enabled for this assistant");
+      await s.limiter.hit(`att:sub:${sess.widgetId}:${sess.subjectId}`, 30, 3600);
+      const data = new Uint8Array(await c.req.arrayBuffer());
+      if (!data.byteLength) throw badRequest("empty body: send the image bytes as the request body");
+      if (data.byteLength > ATTACHMENT_MAX_BYTES) throw badRequest("image larger than 3.75 MiB");
+      const mediaType = sniffImage(data);
+      if (!mediaType) throw badRequest("unsupported image: use PNG, JPEG, GIF or WebP");
+      const att = await createAttachment(sql, { tenantId: conv.tenant_id, conversationId: conv.id, mediaType, name: cleanName(query.name), data });
+      return c.json(att, 201);
+    },
+  );
+
+  route(
+    app,
+    {
+      method: "get",
+      path: "/v1/conversations/{id}/attachments/{attachmentId}",
+      tag: "Chat",
+      summary: "Download an attached image",
+      auth: "session",
+      response: { status: 200, description: "The image", contentType: "image/*" },
+    },
+    async (c) => {
+      const conv = await ownedConversationOr404(c, param(c, "id"));
+      const a = await getAttachmentData(sql, conv.tenant_id, conv.id, param(c, "attachmentId"));
+      if (!a) throw notFound("attachment");
+      return imageResponse(a, "private, max-age=3600");
+    },
+  );
+
+  route(
+    app,
+    {
+      method: "delete",
+      path: "/v1/conversations/{id}/attachments/{attachmentId}",
+      tag: "Chat",
+      summary: "Remove an image that was not sent yet",
+      auth: "session",
+      response: { status: 204, description: "Deleted" },
+    },
+    async (c) => {
+      const conv = await ownedConversationOr404(c, param(c, "id"));
+      if (!(await deleteUnsentAttachment(sql, conv.tenant_id, conv.id, param(c, "attachmentId")))) throw notFound("attachment");
+      return c.body(null, 204);
+    },
+  );
+
   route(
     app,
     {
@@ -226,6 +312,9 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
 
       const assistant = await getAssistant(sql, widget.tenant_id, widget.assistant_id);
       if (!assistant) throw notFound("assistant");
+      if (body.attachmentIds?.length && !attachmentsOn(widget, assistant.model_alias)) {
+        throw badRequest("image attachments are not enabled for this assistant");
+      }
 
       const created = await sql.begin(async (tx) => {
         // Serialise run creation per conversation (one active run at a time).
@@ -248,6 +337,9 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
           content: assistant.redact_pii ? redactPii(body.content) : body.content,
           status: "complete",
         });
+        if (body.attachmentIds?.length) {
+          userMessage.attachments = await claimAttachments(tx, { tenantId: conv.tenant_id, conversationId: conv.id, messageId: userMessage.id, ids: body.attachmentIds });
+        }
         const runRows = await tx<RunRow[]>`
           INSERT INTO runs (id, tenant_id, conversation_id, widget_id, user_message_id, status, model_alias,
                             assistant_version, idempotency_key, context)

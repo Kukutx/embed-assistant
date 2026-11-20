@@ -1,4 +1,5 @@
 import type {
+  Attachment,
   ClientToolDef,
   Conversation,
   HandoffResult,
@@ -143,16 +144,17 @@ export class Client {
     return this.sessionPromise;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, auth = true, retried = false): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, auth = true, retried = false, as: "json" | "blob" = "json"): Promise<T> {
     const headers: Record<string, string> = {};
-    if (body !== undefined) headers["content-type"] = "application/json";
+    const raw = typeof Blob !== "undefined" && body instanceof Blob;
+    if (body !== undefined) headers["content-type"] = raw ? (body as Blob).type || "application/octet-stream" : "application/json";
     if (auth) headers.authorization = `Bearer ${(await this.ensureSession()).token}`;
     let res: Response;
     try {
       res = await fetch(this.base + path, {
         method,
         headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: body === undefined ? undefined : raw ? (body as Blob) : JSON.stringify(body),
         credentials: "omit",
       });
     } catch {
@@ -161,7 +163,7 @@ export class Client {
     if (res.status === 401 && auth && !retried) {
       this.session = null;
       this.set("session", null);
-      return this.request<T>(method, path, body, auth, true);
+      return this.request<T>(method, path, body, auth, true, as);
     }
     if (!res.ok) {
       let code = "internal_error";
@@ -179,6 +181,7 @@ export class Client {
       throw new ApiError(res.status, code, message, Number.isFinite(ra) && ra > 0 ? ra : null, res.headers.get("x-request-id"), details);
     }
     if (res.status === 204) return undefined as T;
+    if (as === "blob") return (await res.blob()) as T;
     return (await res.json()) as T;
   }
 
@@ -203,13 +206,26 @@ export class Client {
     context: PageContext | undefined,
     idempotencyKey: string,
     clientTools?: ClientToolDef[],
+    attachmentIds?: string[],
   ): Promise<CreateRunResponse> {
     return this.request("POST", `/v1/conversations/${encodeURIComponent(conversationId)}/runs`, {
       content,
       ...(context ? { context } : {}),
       ...(clientTools?.length ? { clientTools } : {}),
+      ...(attachmentIds?.length ? { attachmentIds } : {}),
       idempotencyKey,
     });
+  }
+  uploadAttachment(conversationId: string, file: Blob, name?: string): Promise<Attachment> {
+    const q = name ? `?name=${encodeURIComponent(name.slice(0, 200))}` : "";
+    return this.request("POST", `/v1/conversations/${encodeURIComponent(conversationId)}/attachments${q}`, file);
+  }
+  deleteAttachment(conversationId: string, id: string): Promise<void> {
+    return this.request("DELETE", `/v1/conversations/${encodeURIComponent(conversationId)}/attachments/${encodeURIComponent(id)}`);
+  }
+  /** The image bytes (sent with the session token, so they cannot be loaded with a plain <img src>). */
+  attachmentBlob(conversationId: string, id: string): Promise<Blob> {
+    return this.request("GET", `/v1/conversations/${encodeURIComponent(conversationId)}/attachments/${encodeURIComponent(id)}`, undefined, true, false, "blob");
   }
   toolResult(runId: string, body: { callId: string; approved?: boolean; output?: unknown; isError?: boolean }): Promise<void> {
     return this.request("POST", `/v1/runs/${encodeURIComponent(runId)}/tool-results`, body);

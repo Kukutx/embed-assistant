@@ -124,7 +124,7 @@ describe.skipIf(!DB)("long-term memory (postgres)", () => {
     expect(a.memory).toBe(false);
     assistantId = a.id;
     const w = await admin("POST", "/widgets", { assistantId, name: "Shop", allowedOrigins: [ORIGIN], features: { voice: true } }, 201);
-    expect(w.widget.features).toEqual({ feedback: true, sources: true, history: true, voice: true });
+    expect(w.widget.features).toEqual({ feedback: true, sources: true, history: true, voice: true, attachments: false });
     widgetId = w.widget.id;
     secret = w.identitySecret;
   });

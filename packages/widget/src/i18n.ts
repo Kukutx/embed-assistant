@@ -53,6 +53,12 @@ export interface Strings {
   voiceStart: string;
   voiceStop: string;
   listening: string;
+  attachImage: string;
+  removeImage: string;
+  attachedImage: string;
+  imageQuestion: string;
+  imageUnsupported: string;
+  tooManyImages: string;
 }
 
 const en: Strings = {
@@ -107,6 +113,12 @@ const en: Strings = {
   voiceStart: "Speak your question",
   voiceStop: "Stop listening",
   listening: "Listening…",
+  attachImage: "Attach an image",
+  removeImage: "Remove image",
+  attachedImage: "Attached image",
+  imageQuestion: "Can you help me with this image?",
+  imageUnsupported: "This file cannot be attached. Use a PNG, JPEG, GIF or WebP image.",
+  tooManyImages: "You can attach up to {n} images per question.",
 };
 
 const zh: Strings = {
@@ -161,6 +173,12 @@ const zh: Strings = {
   voiceStart: "语音提问",
   voiceStop: "停止聆听",
   listening: "正在聆听…",
+  attachImage: "添加图片",
+  removeImage: "移除图片",
+  attachedImage: "附加的图片",
+  imageQuestion: "可以帮我看看这张图片吗？",
+  imageUnsupported: "无法添加此文件，请使用 PNG、JPEG、GIF 或 WebP 图片。",
+  tooManyImages: "每个问题最多可添加 {n} 张图片。",
 };
 
 const it: Strings = {
@@ -215,6 +233,12 @@ const it: Strings = {
   voiceStart: "Fai la domanda a voce",
   voiceStop: "Smetti di ascoltare",
   listening: "Ti ascolto…",
+  attachImage: "Allega un'immagine",
+  removeImage: "Rimuovi immagine",
+  attachedImage: "Immagine allegata",
+  imageQuestion: "Puoi aiutarmi con questa immagine?",
+  imageUnsupported: "Questo file non può essere allegato. Usa un'immagine PNG, JPEG, GIF o WebP.",
+  tooManyImages: "Puoi allegare fino a {n} immagini per domanda.",
 };
 
 const es: Strings = {
@@ -269,6 +293,12 @@ const es: Strings = {
   voiceStart: "Haz tu pregunta por voz",
   voiceStop: "Dejar de escuchar",
   listening: "Escuchando…",
+  attachImage: "Adjuntar una imagen",
+  removeImage: "Quitar imagen",
+  attachedImage: "Imagen adjunta",
+  imageQuestion: "¿Puedes ayudarme con esta imagen?",
+  imageUnsupported: "No se puede adjuntar este archivo. Usa una imagen PNG, JPEG, GIF o WebP.",
+  tooManyImages: "Puedes adjuntar hasta {n} imágenes por pregunta.",
 };
 
 const fr: Strings = {
@@ -323,6 +353,12 @@ const fr: Strings = {
   voiceStart: "Poser la question à voix haute",
   voiceStop: "Arrêter l'écoute",
   listening: "À l'écoute…",
+  attachImage: "Joindre une image",
+  removeImage: "Retirer l'image",
+  attachedImage: "Image jointe",
+  imageQuestion: "Peux-tu m’aider avec cette image ?",
+  imageUnsupported: "Ce fichier ne peut pas être joint. Utilisez une image PNG, JPEG, GIF ou WebP.",
+  tooManyImages: "Vous pouvez joindre jusqu’à {n} images par question.",
 };
 
 const de: Strings = {
@@ -377,6 +413,12 @@ const de: Strings = {
   voiceStart: "Frage sprechen",
   voiceStop: "Zuhören beenden",
   listening: "Ich höre zu…",
+  attachImage: "Bild anhängen",
+  removeImage: "Bild entfernen",
+  attachedImage: "Angehängtes Bild",
+  imageQuestion: "Kannst du mir mit diesem Bild helfen?",
+  imageUnsupported: "Diese Datei kann nicht angehängt werden. Verwende ein PNG-, JPEG-, GIF- oder WebP-Bild.",
+  tooManyImages: "Du kannst bis zu {n} Bilder pro Frage anhängen.",
 };
 
 const ja: Strings = {
@@ -431,6 +473,12 @@ const ja: Strings = {
   voiceStart: "音声で質問",
   voiceStop: "聞き取りを停止",
   listening: "聞き取り中…",
+  attachImage: "画像を添付",
+  removeImage: "画像を削除",
+  attachedImage: "添付画像",
+  imageQuestion: "この画像について教えてもらえますか？",
+  imageUnsupported: "このファイルは添付できません。PNG、JPEG、GIF、WebP の画像を使ってください。",
+  tooManyImages: "1 つの質問に添付できる画像は {n} 枚までです。",
 };
 
 const pt: Strings = {
@@ -485,6 +533,12 @@ const pt: Strings = {
   voiceStart: "Fazer a pergunta por voz",
   voiceStop: "Parar de ouvir",
   listening: "Ouvindo…",
+  attachImage: "Anexar uma imagem",
+  removeImage: "Remover imagem",
+  attachedImage: "Imagem anexada",
+  imageQuestion: "Pode me ajudar com esta imagem?",
+  imageUnsupported: "Não é possível anexar este arquivo. Use uma imagem PNG, JPEG, GIF ou WebP.",
+  tooManyImages: "Você pode anexar até {n} imagens por pergunta.",
 };
 
 const TABLE: Record<string, Strings> = { en, zh, it, es, fr, de, ja, pt };

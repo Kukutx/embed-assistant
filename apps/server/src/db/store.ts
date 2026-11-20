@@ -3,6 +3,7 @@
  * so a bug in a route cannot read across tenants by forgetting a WHERE clause.
  */
 import type {
+  Attachment,
   AdminConversation,
   Assistant,
   AssistantConfig,
@@ -77,7 +78,7 @@ export interface WidgetRow {
   allowed_origins: string[];
   theme: Widget["theme"];
   default_locale: string | null;
-  features: Omit<Widget["features"], "voice"> & { voice?: boolean };
+  features: Omit<Widget["features"], "voice" | "attachments"> & { voice?: boolean; attachments?: boolean };
   daily_token_budget: number | null;
   identity_secret: string;
   created_at: Date;
@@ -114,6 +115,7 @@ export interface MessageRow {
   suggestions: string[];
   tool_calls: { name: string; isError: boolean }[];
   author_name: string | null;
+  attachments: Attachment[];
   created_at: Date;
 }
 
@@ -185,7 +187,7 @@ export const toWidget = (r: WidgetRow): Widget => ({
   allowedOrigins: r.allowed_origins,
   theme: r.theme,
   defaultLocale: r.default_locale,
-  features: { ...r.features, voice: r.features.voice ?? false },
+  features: { ...r.features, voice: r.features.voice ?? false, attachments: r.features.attachments ?? false },
   dailyTokenBudget: r.daily_token_budget,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
@@ -210,6 +212,7 @@ export const toMessage = (r: MessageRow): Message => ({
   status: r.status,
   feedback: r.feedback,
   ...(r.role === "assistant" ? { suggestions: r.suggestions ?? [], author: r.author_name ? { type: "human" as const, name: r.author_name } : null } : {}),
+  ...(r.role === "user" && r.attachments?.length ? { attachments: r.attachments } : {}),
   createdAt: iso(r.created_at),
 });
 

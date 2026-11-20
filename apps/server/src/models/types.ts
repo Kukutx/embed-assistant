@@ -24,13 +24,20 @@ export interface ToolDef {
   parameters: Record<string, unknown>;
 }
 
+/** An image the user attached (only on the current question). */
+export interface ImageInput {
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** Base64, no data: prefix. */
+  data: string;
+}
+
 /**
  * One turn of the provider-neutral transcript. Assistant turns produced in this
  * run may carry the provider's raw content (`raw`), which the same provider
  * replays verbatim (e.g. reasoning blocks that must accompany tool calls).
  */
 export type ChatTurn =
-  | { role: "user"; content: string }
+  | { role: "user"; content: string; images?: ImageInput[] }
   | { role: "assistant"; content: string; toolCalls?: ToolCall[]; raw?: { provider: string; content: unknown } }
   | { role: "tool"; results: ToolResult[] };
 
@@ -71,6 +78,8 @@ export interface ChatModel {
   readonly id: string;
   readonly provider: string;
   readonly model: string;
+  /** Accepts images in user turns. The router strips them (with a note) for models that do not. */
+  readonly vision?: boolean;
   /** False when credentials are missing; the router skips it. */
   available(): boolean;
   stream(req: ChatRequest): AsyncIterable<ChatChunk>;

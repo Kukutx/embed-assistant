@@ -16,6 +16,7 @@ import { auxAlias, contextualQuery, suggestFollowUps } from "./assist.js";
 import { knowledgeSearch } from "./answer.js";
 import { AnswerWatch, checkQuestion, TermMatcher, type GuardrailVerdict } from "./guardrails.js";
 import { listMemories, memorySession, touchMemories } from "../memory/memories.js";
+import { loadImages } from "../attachments/attachments.js";
 import { listPlaybooks, openPlaybook, PLAYBOOK_TOOL, playbookToolDef } from "../playbooks/playbooks.js";
 import { requestHandoff } from "./handoff.js";
 import { buildSystemPrompt, buildUserTurn, extractCitations, toCitation, trimHistory } from "./prompt.js";
@@ -238,7 +239,8 @@ export class RunExecutor {
       await emit(job.runId, ++seq, "run.started", { modelAlias: a.model_alias });
 
       const historyRows = await sql<{ role: "user" | "assistant"; content: string }[]>`
-        SELECT role, CASE WHEN author_name IS NOT NULL THEN '[' || author_name || ', a person on the support team, wrote:] ' || content ELSE content END AS content
+        SELECT role, CASE WHEN author_name IS NOT NULL THEN '[' || author_name || ', a person on the support team, wrote:] ' || content ELSE content END
+          || CASE WHEN jsonb_array_length(attachments) > 0 THEN E'\n\n[The user attached ' || jsonb_array_length(attachments) || ' image(s) to this message; they are no longer visible.]' ELSE '' END AS content
         FROM messages
         WHERE conversation_id = ${job.conversationId} AND id <> ${job.userMessage.id} AND status = 'complete'
         ORDER BY created_at DESC, id DESC LIMIT 40`;
@@ -264,6 +266,10 @@ export class RunExecutor {
                 return [];
               })
           : null;
+      // Images attached to this question, loaded while retrieval runs.
+      const attached = job.userMessage.attachments ?? [];
+      const imagesLoad = attached.length ? loadImages(sql, job.tenantId, job.userMessage.id, attached.map((x) => x.id)) : null;
+      imagesLoad?.catch(() => {}); // awaited below; this only avoids an unhandled rejection if the question is refused first
       // Long-term memory (signed-in users only), loaded while retrieval runs.
       const memoryRows =
         a.memory && job.subject.kind === "user" && this.models.hasLanguageModel(a.model_alias)
@@ -354,7 +360,11 @@ export class RunExecutor {
       });
       const transcript: ChatTurn[] = [
         ...history,
-        { role: "user", content: buildUserTurn({ question: job.userMessage.content, sources, context: job.context, memory }) },
+        {
+          role: "user",
+          content: buildUserTurn({ question: job.userMessage.content, sources, context: job.context, memory, images: attached.length }),
+          ...(imagesLoad && !blocked ? { images: await imagesLoad } : {}),
+        },
       ];
 
       let pending = "";

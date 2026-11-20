@@ -26,3 +26,10 @@ await writeFile("dist/manifest.json", JSON.stringify({ version: pkg.version, loa
 
 const kb = (b) => `${(b.length / 1024).toFixed(1)} KB`;
 console.log(`widget ${pkg.version}: loader.js ${kb(loader.outputFiles[0].contents)}, ${appFile} ${kb(appCode)}`);
+
+// Size budget: catches a runtime import that drags a library (e.g. zod from the protocol package) into the bundle.
+const BUDGET = { loader: 12 * 1024, app: 150 * 1024 };
+if (loader.outputFiles[0].contents.length > BUDGET.loader || appCode.length > BUDGET.app) {
+  console.error(`widget bundle over budget (loader ${kb(loader.outputFiles[0].contents)} / 12 KB, app ${kb(appCode)} / 150 KB)`);
+  process.exit(1);
+}

@@ -6,7 +6,7 @@ import type { Citation, ClientToolDef, ConversationEvent, Message, PageContext, 
 import { ApiError, Client } from "./client.js";
 import { stringsFor, type Strings } from "./i18n.js";
 import { plainText, renderMarkdown, safeUrl } from "./markdown.js";
-import { CHAT_ICON, CLOSE_ICON, contrastText, DEFAULT_ACCENT, type AppHandle, type MountContext, type PageContextInput, type UserTokenProvider } from "./shared.js";
+import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MEDIA_TYPES, ATTACHMENTS_PER_MESSAGE, CHAT_ICON, CLOSE_ICON, contrastText, DEFAULT_ACCENT, type AppHandle, type MountContext, type PageContextInput, type UserTokenProvider } from "./shared.js";
 import { STYLES } from "./styles.js";
 
 // ------------------------------------------------------------------ speech
@@ -26,6 +26,52 @@ const speechRecognition = (): (new () => Recognition) | null => {
   const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 };
+
+// ------------------------------------------------------------------ images
+/** Longest edge sent to the model: larger screenshots cost more tokens without reading better. */
+const MAX_IMAGE_EDGE = 2048;
+
+/**
+ * Downscale big images in the browser (fewer bytes, fewer tokens). Small
+ * images of an accepted type are sent untouched. Returns null if the file is
+ * not an image the browser can read.
+ */
+async function prepareImage(file: Blob): Promise<Blob | null> {
+  const accepted = ATTACHMENT_MEDIA_TYPES.includes(file.type);
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    return accepted && file.size <= ATTACHMENT_MAX_BYTES ? file : null;
+  }
+  const edge = Math.max(bmp.width, bmp.height);
+  if (accepted && file.size <= ATTACHMENT_MAX_BYTES && edge <= MAX_IMAGE_EDGE) {
+    bmp.close();
+    return file;
+  }
+  const scale = Math.min(1, MAX_IMAGE_EDGE / edge);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bmp.width * scale));
+  canvas.height = Math.max(1, Math.round(bmp.height * scale));
+  const g = canvas.getContext("2d");
+  if (!g) return null;
+  g.fillStyle = "#fff"; // transparent areas become white rather than black in JPEG
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  g.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close();
+  const encode = (type: string, q: number) => new Promise<Blob | null>((r) => canvas.toBlob(r, type, q));
+  let out = await encode("image/webp", 0.9);
+  if (!out || out.type !== "image/webp") out = await encode("image/jpeg", 0.88); // Safari cannot encode WebP
+  if (out && out.size > ATTACHMENT_MAX_BYTES) out = await encode("image/jpeg", 0.7);
+  return out && out.size <= ATTACHMENT_MAX_BYTES ? out : null;
+}
+
+interface PendingImage {
+  key: string;
+  blob: Blob;
+  name: string;
+  url: string;
+}
 
 // ------------------------------------------------------------------ icons
 const svg = (body: string, size = 18) =>
@@ -50,6 +96,7 @@ const I = {
   ok: svg('<path d="M20 6L9 17l-5-5"/>', 13),
   x: svg('<path d="M18 6L6 18M6 6l12 12"/>', 13),
   mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+  clip: svg('<path d="M21.4 11.1l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/>'),
   spark: svg('<path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/>', 15),
 };
 
@@ -95,6 +142,8 @@ interface ViewMessage {
   handoff: { message: string; url: string | null } | null;
   /** Name of the person on the team who wrote this message (null = the AI assistant). */
   author?: string | null;
+  /** Images on a user message: a local preview URL, or a stored attachment loaded on demand. */
+  images?: { url?: string; attachmentId?: string; name: string | null }[];
 }
 
 const blank = (): Pick<ViewMessage, "suggestions" | "tools" | "confirm" | "handoff"> => ({ suggestions: [], tools: [], confirm: null, handoff: null });
@@ -145,6 +194,12 @@ class App {
   private input!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   private micBtn!: HTMLButtonElement;
+  private attachBtn!: HTMLButtonElement;
+  private fileInput!: HTMLInputElement;
+  private tray!: HTMLDivElement;
+  private pending: PendingImage[] = [];
+  /** Object URLs of stored attachments shown in the current conversation, by attachment id. */
+  private imageUrls = new Map<string, Promise<string | null>>();
   private recognition: Recognition | null = null;
   private footer!: HTMLDivElement;
   private backBtn!: HTMLButtonElement;
@@ -276,7 +331,16 @@ class App {
     this.sendBtn = h("button", { class: "ea-send", type: "button", html: I.send, disabled: true });
     this.disclaimer = h("p", { class: "ea-disclaimer" });
     this.micBtn = h("button", { class: "ea-icon-btn ea-mic", type: "button", html: I.mic, hidden: true, "aria-pressed": "false" });
-    this.footer = h("div", { class: "ea-footer" }, h("div", { class: "ea-composer" }, this.input, this.micBtn, this.sendBtn), this.disclaimer);
+    this.attachBtn = h("button", { class: "ea-icon-btn ea-attach", type: "button", html: I.clip, hidden: true });
+    this.fileInput = h("input", { type: "file", accept: ATTACHMENT_MEDIA_TYPES.join(","), multiple: true, hidden: true, tabindex: "-1" });
+    this.tray = h("div", { class: "ea-tray", hidden: true });
+    this.footer = h(
+      "div",
+      { class: "ea-footer" },
+      this.tray,
+      h("div", { class: "ea-composer" }, this.attachBtn, this.fileInput, this.input, this.micBtn, this.sendBtn),
+      this.disclaimer,
+    );
     this.live = h("div", { class: "ea-sr", "aria-live": "polite", "aria-atomic": "true" });
 
     this.panel = h(
@@ -319,6 +383,33 @@ class App {
     });
     this.sendBtn.addEventListener("click", () => (this.running ? void this.stop() : this.submit()));
     this.micBtn.addEventListener("click", () => this.toggleVoice());
+    this.attachBtn.addEventListener("click", () => this.fileInput.click());
+    this.fileInput.addEventListener("change", () => {
+      void this.addImages([...(this.fileInput.files ?? [])]);
+      this.fileInput.value = "";
+    });
+    this.input.addEventListener("paste", (e) => {
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+      if (files.length && this.canAttach()) {
+        e.preventDefault();
+        void this.addImages(files);
+      }
+    });
+    this.panel.addEventListener("dragover", (e) => {
+      if (this.canAttach() && e.dataTransfer?.types.includes("Files")) {
+        e.preventDefault();
+        this.panel.classList.add("ea-drop");
+      }
+    });
+    this.panel.addEventListener("dragleave", (e) => {
+      if (e.target === this.panel || !this.panel.contains(e.relatedTarget as Node | null)) this.panel.classList.remove("ea-drop");
+    });
+    this.panel.addEventListener("drop", (e) => {
+      this.panel.classList.remove("ea-drop");
+      if (!this.canAttach() || !e.dataTransfer?.files.length) return;
+      e.preventDefault();
+      void this.addImages([...e.dataTransfer.files].filter((f) => f.type.startsWith("image/")));
+    });
     this.input.addEventListener("input", () => this.onInput());
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
@@ -369,6 +460,7 @@ class App {
     this.historyBtn.hidden = cfg ? !cfg.features.history : true;
     this.handoffBtn.hidden = !cfg?.handoff?.enabled;
     this.micBtn.hidden = !(cfg?.features.voice && speechRecognition());
+    this.syncAttach();
     this.panel.lang = this.lang;
     this.applyTheme();
     this.applyLabels();
@@ -402,6 +494,7 @@ class App {
     this.expandBtn.innerHTML = this.expanded ? I.collapse : I.expand;
     label(this.panel.querySelector<HTMLButtonElement>("[data-role=close]")!, t.closeChat);
     label(this.micBtn, this.recognition ? t.voiceStop : t.voiceStart);
+    label(this.attachBtn, t.attachImage);
     this.input.placeholder = this.recognition ? t.listening : this.cfg?.assistant.placeholder || t.placeholder;
     this.input.setAttribute("aria-label", this.input.placeholder);
     this.syncSendButton();
@@ -411,6 +504,7 @@ class App {
   // ---------------------------------------------------------------- views
   private renderChat() {
     this.view = "chat";
+    this.syncAttach();
     this.backBtn.hidden = true;
     this.footer.hidden = false;
     this.body.replaceChildren();
@@ -556,6 +650,7 @@ class App {
       key: newKey(),
       id: m.id,
       role: m.role,
+      ...(m.attachments?.length ? { images: m.attachments.map((a) => ({ attachmentId: a.id, name: a.name })) } : {}),
       content: m.content,
       citations: m.citations,
       status: m.status,
@@ -611,6 +706,7 @@ class App {
     if (this.built) {
       this.input.placeholder = mode === "human" && agentName ? this.t.messagePerson.replace("{name}", agentName) : this.cfg?.assistant.placeholder || this.t.placeholder;
       this.input.setAttribute("aria-label", this.input.placeholder);
+      this.syncAttach();
     }
     if (changed && notify) {
       const text = mode === "human" ? this.t.agentJoined.replace("{name}", agentName ?? "") : this.t.backToAssistant;
@@ -650,6 +746,10 @@ class App {
   }
 
   private setConversation(id: string | null) {
+    if (id !== this.conversationId) {
+      for (const u of this.imageUrls.values()) void u.then((x) => x && URL.revokeObjectURL(x));
+      this.imageUrls.clear();
+    }
     this.conversationId = id;
     this.client.set("conversation", id);
   }
@@ -661,6 +761,7 @@ class App {
     this.setMode("assistant", null, false);
     this.setConversation(null);
     this.messages = [];
+    this.clearPending();
     if (this.view === "chat") this.renderChat();
     this.syncSendButton();
     if (focus && this.view === "chat") this.input.focus();
@@ -683,6 +784,7 @@ class App {
   private fillMessage(wrap: HTMLElement, vm: ViewMessage) {
     wrap.replaceChildren();
     if (vm.role === "user") {
+      if (vm.images?.length) wrap.appendChild(this.imageRow(vm.images));
       wrap.appendChild(h("div", { class: "ea-bubble", text: vm.content }));
       return;
     }
@@ -925,7 +1027,7 @@ class App {
   private syncSendButton() {
     const busy = !!this.running;
     this.sendBtn.innerHTML = busy ? I.stop : I.send;
-    this.sendBtn.disabled = !busy && !this.input.value.trim();
+    this.sendBtn.disabled = !busy && !this.input.value.trim() && !this.pending.length;
     const label = busy ? this.t.stop : this.t.send;
     this.sendBtn.setAttribute("aria-label", label);
     this.sendBtn.title = label;
@@ -980,11 +1082,99 @@ class App {
 
   private submit() {
     this.recognition?.stop();
-    const text = this.input.value.trim();
+    const images = this.mode === "assistant" ? this.pending : [];
+    const text = this.input.value.trim() || (images.length ? this.t.imageQuestion : "");
     if (!text || this.running) return;
     this.input.value = "";
+    this.pending = [];
+    this.renderTray();
     this.onInput();
-    void this.send(text);
+    void this.send(text, false, images);
+  }
+
+  // ---------------------------------------------------------------- images
+  private canAttach(): boolean {
+    return !!this.cfg?.features.attachments && this.mode === "assistant" && this.view === "chat";
+  }
+
+  private syncAttach() {
+    if (!this.built) return;
+    this.attachBtn.hidden = !this.canAttach();
+    if (this.attachBtn.hidden && this.pending.length && this.mode !== "assistant") this.clearPending();
+  }
+
+  private async addImages(files: Blob[]) {
+    for (const f of files) {
+      if (this.pending.length >= ATTACHMENTS_PER_MESSAGE) {
+        this.showBanner(this.t.tooManyImages.replace("{n}", String(ATTACHMENTS_PER_MESSAGE)));
+        break;
+      }
+      const blob = await prepareImage(f).catch(() => null);
+      if (!blob) {
+        this.showBanner(this.t.imageUnsupported);
+        continue;
+      }
+      this.pending.push({ key: newKey(), blob, name: (f as File).name || "image", url: URL.createObjectURL(blob) });
+    }
+    this.renderTray();
+    this.syncSendButton();
+    this.input.focus();
+  }
+
+  private clearPending() {
+    for (const p of this.pending) URL.revokeObjectURL(p.url);
+    this.pending = [];
+    if (this.built) {
+      this.renderTray();
+      this.syncSendButton();
+    }
+  }
+
+  private renderTray() {
+    this.tray.replaceChildren(
+      ...this.pending.map((p) => {
+        const remove = h("button", { class: "ea-tray-x", type: "button", html: I.x, "aria-label": `${this.t.removeImage}: ${p.name}`, title: this.t.removeImage });
+        remove.addEventListener("click", () => {
+          URL.revokeObjectURL(p.url);
+          this.pending = this.pending.filter((x) => x !== p);
+          this.renderTray();
+          this.syncSendButton();
+          this.input.focus();
+        });
+        return h("div", { class: "ea-tray-item" }, h("img", { src: p.url, alt: p.name }), remove);
+      }),
+    );
+    this.tray.hidden = !this.pending.length;
+  }
+
+  /** Thumbnails on a user message; stored images are fetched with the session token. */
+  private imageRow(images: NonNullable<ViewMessage["images"]>): HTMLElement {
+    const row = h("div", { class: "ea-images" });
+    for (const im of images) {
+      const img = h("img", { alt: im.name || this.t.attachedImage, loading: "lazy" });
+      const link = h("a", { class: "ea-image", target: "_blank", rel: "noopener" }, img);
+      const show = (url: string | null) => {
+        if (!url) return link.replaceWith(h("span", { class: "ea-image ea-image-missing", text: this.t.attachedImage }));
+        img.src = url;
+        link.setAttribute("href", url);
+      };
+      if (im.url) show(im.url);
+      else if (im.attachmentId && this.conversationId) {
+        const id = im.attachmentId;
+        const conv = this.conversationId;
+        let p = this.imageUrls.get(id);
+        if (!p) {
+          p = this.client
+            .attachmentBlob(conv, id)
+            .then((b) => URL.createObjectURL(b))
+            .catch(() => null);
+          this.imageUrls.set(id, p);
+        }
+        void p.then(show);
+      }
+      row.appendChild(link);
+    }
+    return row;
   }
 
   private pageContext(): PageContext | undefined {
@@ -1005,12 +1195,24 @@ class App {
     return Object.keys(ctx).length ? ctx : undefined;
   }
 
-  private async send(text: string, isRetry = false): Promise<void> {
+  private async send(text: string, isRetry = false, images: PendingImage[] = []): Promise<void> {
     if (this.running) return;
     if (this.view !== "chat") this.renderChat();
     const content = text.slice(0, 4000);
     if (this.mode === "human" && this.conversationId) return this.sendToPerson(content);
-    const user: ViewMessage = { key: newKey(), id: null, role: "user", content, citations: [], status: "complete", feedback: null, phase: null, error: null, ...blank() };
+    const user: ViewMessage = {
+      key: newKey(),
+      id: null,
+      role: "user",
+      content,
+      citations: [],
+      status: "complete",
+      feedback: null,
+      phase: null,
+      error: null,
+      ...blank(),
+      ...(images.length ? { images: images.map((p) => ({ url: p.url, name: p.name })) } : {}),
+    };
     if (!isRetry || this.messages.at(-1)?.content !== content) this.append(user);
     const vm: ViewMessage = { key: newKey(), id: null, role: "assistant", content: "", citations: [], status: "streaming", feedback: null, phase: "searching", error: null, ...blank() };
     this.append(vm);
@@ -1026,9 +1228,15 @@ class App {
         this.setConversation(conversationId);
       }
       const key = this.client.newIdempotencyKey();
+      let attachmentIds: string[] = [];
+      const upload = async (conv: string) => {
+        attachmentIds = [];
+        for (const p of images) attachmentIds.push((await this.client.uploadAttachment(conv, p.blob, p.name)).id);
+      };
       let created;
       try {
-        created = await this.client.createRun(conversationId, content, this.pageContext(), key, this.toolDefs());
+        await upload(conversationId);
+        created = await this.client.createRun(conversationId, content, this.pageContext(), key, this.toolDefs(), attachmentIds);
       } catch (err) {
         if (err instanceof ApiError && err.status === 409 && (err.details as { mode?: string } | null)?.mode === "human") {
           // A person took over in the meantime: deliver the message to them instead.
@@ -1047,7 +1255,8 @@ class App {
         // Conversation was deleted elsewhere: start a new one transparently.
         conversationId = (await this.client.createConversation()).id;
         this.setConversation(conversationId);
-        created = await this.client.createRun(conversationId, content, this.pageContext(), key, this.toolDefs());
+        await upload(conversationId);
+        created = await this.client.createRun(conversationId, content, this.pageContext(), key, this.toolDefs(), attachmentIds);
       }
       if (created.userMessage.content !== user.content) {
         // The server masked personal data: show what was actually stored.

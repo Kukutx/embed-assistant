@@ -21,6 +21,8 @@ export interface RouteSpec<B extends z.ZodType | undefined, Q extends z.ZodType 
   description?: string;
   auth: Auth;
   body?: B;
+  /** Media types of a non-JSON request body (read by the handler itself), for the OpenAPI document. */
+  rawBody?: string[];
   query?: Q;
   response: { status: number; schema?: z.ZodType; description?: string; contentType?: string };
 }
@@ -109,7 +111,9 @@ export function openApiDocument(baseUrl: string, version: string): Record<string
           description: r.response.description ?? "OK",
           ...(r.response.schema
             ? { content: { [r.response.contentType ?? "application/json"]: { schema: toSchema(r.response.schema, "output") } } }
-            : {}),
+            : r.response.contentType?.startsWith("image/")
+              ? { content: { [r.response.contentType]: { schema: { type: "string", format: "binary" } } } }
+              : {}),
         },
         default: {
           description: "Error",
@@ -118,6 +122,7 @@ export function openApiDocument(baseUrl: string, version: string): Record<string
       },
     };
     if (r.body) op.requestBody = { required: true, content: { "application/json": { schema: toSchema(r.body, "input") } } };
+    else if (r.rawBody) op.requestBody = { required: true, content: Object.fromEntries(r.rawBody.map((t) => [t, { schema: { type: "string", format: "binary" } }])) };
     (paths[r.path] ??= {})[r.method] = op;
   }
 

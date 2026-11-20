@@ -37,8 +37,12 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
   OPENAI_MODEL: z.string().default("gpt-5-mini"),
+  /** The OpenAI(-compatible) model accepts images (visitor screenshots). */
+  OPENAI_VISION: bool.default(true),
   OLLAMA_BASE_URL: z.string().url().optional(),
   OLLAMA_MODEL: z.string().default("llama3.2"),
+  /** Set when OLLAMA_MODEL is a vision model (e.g. llama3.2-vision, qwen2.5vl). */
+  OLLAMA_VISION: bool.default(false),
   /** OpenAI-compatible embeddings endpoint (OpenAI, Ollama, vLLM...). Optional. */
   EMBEDDINGS_BASE_URL: z.string().url().optional(),
   EMBEDDINGS_API_KEY: z.string().optional(),
