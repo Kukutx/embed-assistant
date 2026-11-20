@@ -174,6 +174,8 @@ let pollTimer = null;
 
 async function overview(main) {
   const [usage, models] = await Promise.all([api("GET", "/usage?days=7"), api("GET", "/models")]);
+  const setup = allowed("config:read") ? await setupCard(models).catch(() => null) : null;
+  if (setup) main.append(setup);
   const stat = (k, v) => h("div", { class: "card stat" }, h("div", { class: "v", text: String(v) }), h("div", { class: "k", text: k }));
   const satisfaction = usage.feedbackUp + usage.feedbackDown ? `${Math.round((100 * usage.feedbackUp) / (usage.feedbackUp + usage.feedbackDown))}%` : "—";
   main.append(
@@ -208,6 +210,42 @@ async function overview(main) {
               h("td", {}, m.deployments.map((d) => h("span", { class: `badge ${d.available ? "ok" : ""}`, title: d.available ? "available" : "not configured", text: `${d.id} · ${d.model}${d.vision ? " · sees images" : ""}` }), " ")),
             ),
           ),
+        ),
+      ),
+    ),
+  );
+}
+
+/** Getting started: what is still missing before visitors get good answers. Hidden once everything is done. */
+async function setupCard(models) {
+  const [sources, assistantsList, widgetsList, usage30] = await Promise.all([api("GET", "/sources"), api("GET", "/assistants"), api("GET", "/widgets"), api("GET", "/usage?days=30")]);
+  const realModel = models.some((m) => m.deployments.some((d) => d.available && d.model !== "extractive"));
+  const docs = sources.reduce((n, x) => n + (x.documentCount ?? 0), 0);
+  const local = (o) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(o) || o === "*";
+  const liveWidget = widgetsList.some((w) => (w.allowedOrigins ?? []).some((o) => !local(o)));
+  const steps = [
+    [realModel, "Connect an AI model", "Set ANTHROPIC_API_KEY, OPENAI_API_KEY (or any OpenAI-compatible server) in the server environment. Until then answers are quotes from your knowledge, not written answers.", null],
+    [docs > 0, "Add your knowledge", "A website (start page), a sitemap, files or documents pushed through the API.", "knowledge"],
+    [assistantsList.length > 0, "Set up an assistant", "Greeting, suggested questions, tone and where to hand off when it cannot help.", "assistants"],
+    [liveWidget, "Allow your website", "Add your site's address (for example https://www.example.com) to a widget's allowed websites, then paste its embed code.", "widgets"],
+    [usage30.runs > 0, "Get the first questions", "Open your site and ask something, or use Try on the widget.", "widgets"],
+  ];
+  if (steps.every(([done]) => done)) return null;
+  return h(
+    "div",
+    { class: "card" },
+    h("h2", { text: `Getting started · ${steps.filter(([d]) => d).length} of ${steps.length} done` }),
+    h(
+      "ol",
+      { class: "steps" },
+      steps.map(([done, title, hint, view]) =>
+        h(
+          "li",
+          { class: done ? "done" : "" },
+          h("span", { class: `badge ${done ? "ok" : "warn"}`, text: done ? "done" : "to do" }),
+          " ",
+          view && !done ? h("a", { href: `#/${view}`, text: title }) : h("strong", { text: title }),
+          done ? null : h("div", { class: "muted small", text: hint }),
         ),
       ),
     ),
@@ -746,7 +784,7 @@ async function topicsCard(days) {
       h("div", { class: "top" }, h("h2", { text: "Topics" }), start),
       h("p", { class: "muted small", text: "Visitor questions grouped by what people need, with how each group went. Groups that go badly come first, with the article to write or fix." }),
       done ? topicsTable(done) : h("p", { class: "muted", text: busy ? "The first analysis is running…" : "No analysis yet." }),
-      latest?.status === "failed" ? h("p", { class: "notice error", text: `Last analysis failed: ${latest.error ?? "unknown error"}` }) : null,
+      ...(latest?.status === "failed" ? [h("p", { class: "notice error", text: `Last analysis failed: ${latest.error ?? "unknown error"}` })] : []),
     );
     if (busy) setTimeout(() => card.isConnected && draw(), 3000);
   };
@@ -2683,7 +2721,10 @@ async function route() {
   clearTimeout(pollTimer);
   const name = (location.hash.replace(/^#\//, "") || "overview").split(/[/?]/)[0];
   const view = VIEWS[name] && allowed(VIEWS[name].perm) ? VIEWS[name] : Object.values(VIEWS).find((v) => allowed(v.perm));
-  document.querySelectorAll("aside [data-view]").forEach((b) => b.setAttribute("aria-current", b.dataset.view === name ? "page" : "false"));
+  document.querySelectorAll("aside [data-view]").forEach((b) => {
+    b.setAttribute("aria-current", b.dataset.view === name ? "page" : "false");
+    if (b.dataset.view === name) b.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  });
   const main = document.querySelector("main");
   if (!main || !view) return;
   const content = h("div");
