@@ -54,6 +54,39 @@ buffer responses and must allow long-lived requests (ingress-nginx:
 - **Models**: spread load and survive outages with several deployments per
   alias in `models.json` (automatic failover), and cap spend with token budgets.
 
+## Capacity
+
+Measured on 2026-11-20 with `scripts/loadtest`: one instance (Node.js 22,
+`DATABASE_POOL_MAX=10`), Postgres 16 and the load generator sharing one 4-vCPU
+machine. A stand-in model answers after 600 ms and streams 60 chunks over
+1.2 s; each visitor opens a conversation and asks 3 questions in a row, with
+query rewriting and follow-up suggestions on (so 3 model calls per follow-up
+question). Server time before the first word, excluding the model, is about
+75 ms.
+
+| Visitors at once | Answers per second | First words, p95 | Errors |
+| --- | --- | --- | --- |
+| 50 | 9.9 | 2.5 s | 0 |
+| 200 | 36.7 | 2.9 s | 0 |
+| 400 | 66.5 | 3.2 s | 0 |
+| 800 | 87.4 | 4.0 s | 0 |
+| 1,600 | 76.6 | 6.6 s | 0 |
+
+One instance of this size serves about 400 visitors who are all waiting for
+an answer at the same moment before latency grows; past that it slows down
+but does not fail. Most of the cost is writing streamed text to Postgres
+(a write per 50 ms per answer), so scale out with replicas and give Postgres
+its own machine. The model provider's rate limits usually bind long before
+this. To reproduce:
+
+```sh
+node scripts/loadtest/mock-model.mjs &          # stand-in model on :9912
+OLLAMA_BASE_URL=http://localhost:9912 DEFAULT_DAILY_TOKEN_BUDGET=0 \
+  RATE_LIMIT_RUNS_PER_MINUTE=100000 RATE_LIMIT_RUNS_PER_HOUR_IP=1000000 \
+  RATE_LIMIT_SESSIONS_PER_HOUR_IP=1000000 node apps/server/dist/main.js &
+BASE=http://localhost:8787 WIDGET=wgt_... VUS=400 QUESTIONS=3 node scripts/loadtest/run.mjs
+```
+
 ## Backups and restore
 
 What to keep:
