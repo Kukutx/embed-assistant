@@ -66,7 +66,7 @@ setenv() { # setenv KEY VALUE: set only when the key is not in .env yet
 }
 touch .env && chmod 600 .env
 if [ -z "${DOMAIN:-}" ]; then
-  DOMAIN=$(grep -s '^DOMAIN=' .env | cut -d= -f2-)
+  DOMAIN=$(grep -s '^DOMAIN=' .env | cut -d= -f2- || true)
 fi
 if [ -z "${DOMAIN:-}" ]; then
   ip=$(curl -fsS --max-time 5 https://checkip.amazonaws.com | tr -d '[:space:]')
@@ -79,7 +79,7 @@ setenv POSTGRES_PASSWORD "$(rand 32)"
 if [ -n "${KEYS_FILE:-}" ]; then
   [ -f "$KEYS_FILE" ] || { echo "KEYS_FILE not found: $KEYS_FILE"; exit 1; }
   # Only KEY=value lines; later values for the same key replace earlier ones.
-  tr -d '\r' < "$KEYS_FILE" | grep -E '^[A-Z][A-Z0-9_]*=' | while IFS= read -r line; do
+  { tr -d '\r' < "$KEYS_FILE" | grep -E '^[A-Z][A-Z0-9_]*=' || true; } | while IFS= read -r line; do
     key=${line%%=*}
     grep -v "^$key=" .env > .env.tmp || true
     printf '%s\n' "$line" >> .env.tmp && mv .env.tmp .env
