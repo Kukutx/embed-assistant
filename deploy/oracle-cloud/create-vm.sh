@@ -84,6 +84,8 @@ if [ -z "$ID" ]; then
   cat > "$WORK/user-data.sh" <<EOF
 #!/bin/bash
 # Retry: on first boot apt may still be locked by the image's own updates.
+# The log holds the first admin key, so only root may read it.
+install -m 600 /dev/null /var/log/embed-assistant-install.log
 for i in 1 2 3 4 5; do
   curl -fsSL $RAW/deploy/single-server/install.sh -o /root/install.sh &&
     bash /root/install.sh >> /var/log/embed-assistant-install.log 2>&1 && break

@@ -107,15 +107,16 @@ done
 
 say "First-run setup"
 if [ ! -f first-run.txt ]; then
-  docker compose exec -T server node dist/cli/seed.js > first-run.txt
-  chmod 600 first-run.txt
+  (umask 077 && docker compose exec -T server node dist/cli/seed.js > first-run.txt)
+  cat first-run.txt
+else
+  echo "Already set up. The first admin key is in $DIR/first-run.txt (root only)."
 fi
-cat first-run.txt
 
 say "Daily backup at 03:30"
 echo "30 3 * * * root $DIR/backup.sh >> /var/log/embed-assistant-backup.log 2>&1" > /etc/cron.d/embed-assistant-backup
 chmod 644 /etc/cron.d/embed-assistant-backup
 
 say "Done"
-echo "Console: https://$DOMAIN/admin/   (the admin key is above and in $DIR/first-run.txt)"
+echo "Console: https://$DOMAIN/admin/   (first admin key: $DIR/first-run.txt, readable by root only)"
 echo "HTTPS may take a minute on first start while the certificate is issued."

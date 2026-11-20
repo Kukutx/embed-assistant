@@ -4,6 +4,7 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+- **Deployment scripts keep the admin key out of logs**: `install.sh` prints the first admin key only on the run that creates it (later runs point to `first-run.txt`), and the Oracle first-boot log is readable by root only.
 - **TypeScript types for the widget API**: the server publishes `/widget/embed-assistant.d.ts`, generated from the widget's own types at build time and compiled in CI, so sites written in TypeScript get `window.EmbedAssistant` and `window.EmbedAssistantConfig` typed. See [examples/spa](examples/spa/README.md).
 
 ## 1.0.15
