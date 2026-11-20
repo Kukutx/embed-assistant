@@ -28,6 +28,7 @@ command -v oci >/dev/null || { echo "Run this in OCI Cloud Shell (the oci CLI is
 C=${COMPARTMENT_ID:-${OCI_TENANCY:-}}
 [ -n "$C" ] || { echo "Set COMPARTMENT_ID (Cloud Shell sets OCI_TENANCY automatically)."; exit 1; }
 
+trap 'echo "Stopped at line $LINENO (exit code $?)."' ERR
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 val() { local v; v=$("$@" 2>/dev/null || true); [ "$v" = "null" ] && v=""; printf '%s' "$v"; }
 
@@ -73,7 +74,7 @@ if [ -z "$ID" ]; then
 
   say "Image"
   IMG=$(oci compute image list -c "$C" --operating-system "Canonical Ubuntu" --operating-system-version "24.04" \
-    --shape "$SHAPE" --sort-by TIMECREATED --sort-order DESC --limit 1 --query 'data[0].id' --raw-output)
+    --shape "$SHAPE" --sort-by TIMECREATED --sort-order DESC --all --query 'data[0].id' --raw-output 2>/dev/null)
   [ -n "$IMG" ] && [ "$IMG" != "null" ] || { echo "No Ubuntu 24.04 image for $SHAPE in this region."; exit 1; }
   mapfile -t ADS < <(oci iam availability-domain list -c "$C" --query 'data[].name' --raw-output | tr -d '[]", ' | grep .)
   [ "${#ADS[@]}" -gt 0 ] || { echo "No availability domains found."; exit 1; }
@@ -101,7 +102,7 @@ EOF
           --image-id "$IMG" --subnet-id "$SUB" --assign-public-ip true --boot-volume-size-in-gbs 50 \
           --ssh-authorized-keys-file "$WORK/key.pub" --user-data-file "$WORK/user-data.sh" \
           --query data.id --raw-output 2>&1); then
-        ID=$(printf '%s' "$out" | grep -o 'ocid1\.instance[^" ]*' | head -1)
+        ID=$(printf '%s' "$out" | grep -o 'ocid1\.instance[^" ]*' | head -1 || true)
         break
       fi
       if printf '%s' "$out" | grep -qiE 'capacity|TooManyRequests|LimitExceeded.*host'; then
@@ -117,8 +118,15 @@ EOF
   rm -rf "$WORK"
 fi
 
-say "Waiting for the instance to run"
-oci compute instance get --instance-id "$ID" --wait-for-state RUNNING --max-wait-seconds 900 >/dev/null
+say "Waiting for the instance to run ($ID)"
+STATE=""
+for _ in $(seq 1 90); do
+  STATE=$(val oci compute instance get --instance-id "$ID" --query 'data."lifecycle-state"' --raw-output)
+  echo "$(date +%H:%M:%S) ${STATE:-unknown}"
+  if [ "$STATE" = RUNNING ]; then break; fi
+  case "$STATE" in TERMINAT*) echo "The instance was terminated."; exit 1 ;; esac
+  sleep 10
+done
 IP=""
 for _ in $(seq 1 30); do
   IP=$(val oci compute instance list-vnics --instance-id "$ID" --query 'data[0]."public-ip"' --raw-output)
