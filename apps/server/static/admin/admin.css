@@ -20,6 +20,8 @@ aside button:hover{background:var(--bg);color:var(--fg)}
 aside button[aria-current="page"]{background:var(--bg);color:var(--fg);font-weight:600}
 aside button:focus-visible{outline:2px solid var(--accent)}
 aside .spacer{flex:1}
+select.lang{margin:6px 10px 0;width:auto;font-size:12px;padding:4px 6px}
+.login-lang{text-align:center;margin-top:12px}.login-lang select.lang{margin:0}
 main{padding:24px 32px;max-width:1100px;width:100%;min-width:0}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px;overflow-x:auto}

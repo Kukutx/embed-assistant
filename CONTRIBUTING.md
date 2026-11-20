@@ -11,3 +11,4 @@ Guidelines:
 - Keep the widget dependency-free and never assign untrusted text to `innerHTML`.
 - New dependencies must be widely used and maintained; installs only accept versions older than 7 days (`minimumReleaseAge`).
 - Commit messages: imperative mood, explain why.
+- Admin console texts are English in `apps/server/static/admin/admin.js`, wrapped in `tx("…")` (`tx("{0} days", n)` for values). Add the translation of each new text to every file in `apps/server/static/admin/i18n/`; `console-i18n.test.ts` fails otherwise. A new language is a new `<lang>.json` plus its entry in `LANGS`.

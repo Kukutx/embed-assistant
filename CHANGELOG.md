@@ -4,6 +4,7 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+- **Admin console in Italian and Chinese**: the console follows the browser language, with a language picker in the sidebar and on the sign-in page. Translations live in `apps/server/static/admin/i18n/<lang>.json`, keyed by the English text, and a test fails when a text is added without its translations. Dates use the chosen language.
 - **Off-site backups on Oracle Cloud in one step**: `deploy/oracle-cloud/offsite-backup.sh` (run in Cloud Shell) creates a private bucket and a write-only upload URL and hands it to the VM through instance metadata; `backup.sh` uploads each daily backup there. Backup files are now readable by root only.
 
 ## 1.0.16
