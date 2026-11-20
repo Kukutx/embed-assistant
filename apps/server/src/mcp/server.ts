@@ -99,7 +99,7 @@ const TOOLS: ServerTool[] = [
       const sources = await visibleSources(s, key);
       const wanted = Array.isArray(args.sourceIds) ? new Set(args.sourceIds as string[]) : null;
       const sourceIds = sources.map((x) => x.id).filter((id) => !wanted || wanted.has(id));
-      const passages = await retrieve(s.sql, s.models.embeddings, s.log, {
+      const passages = await retrieve(s.sql, s.models, s.log, {
         tenantId: key.tenant_id,
         sourceIds,
         access: key.access,

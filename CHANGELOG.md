@@ -2,6 +2,16 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.14
+
+Ready for a pilot.
+
+- **Optional reranker**: `RERANK_BASE_URL` / `RERANK_MODEL` (or `rerank` in models.json) reorders the best search results with any `/rerank` endpoint in the Cohere shape (Cohere, Jina, vLLM, Infinity). Falls back to the fused order on errors or after 3 seconds. Used by answers, `search_knowledge`, `/v1/search`, MCP and topics. See [docs/configuration.md](docs/configuration.md#models).
+- **Cheaper follow-up questions with Claude**: the conversation so far is now a prompt-cache breakpoint as well as the instructions, and in a tool loop the latest tool results are, so later steps re-read sources from the cache.
+- **Measured capacity**: `scripts/loadtest` and a Capacity section in [docs/operations.md](docs/operations.md#capacity). One 4-vCPU instance serves about 400 simultaneous answers before latency grows and had no errors at 1,600.
+- **Accessibility**: an axe-core scan (WCAG 2.2 AA) of the widget in light and dark mode now passes. Secondary text contrast went from 3.1:1 to 4.8:1, and Windows high-contrast mode keeps controls outlined.
+- **Dependencies**: postgres.js 4, undici 8, @hono/node-server 2, node-html-parser 9. The Docker image runs Node.js 26 (LTS); CI tests Node.js 22 and 26. Node.js 22.19 or later is required.
+
 ## 1.0.13
 
 Know what to fix next.

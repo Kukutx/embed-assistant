@@ -35,7 +35,7 @@ export function searchRoutes(app: Hono<AppEnv>, s: Services): void {
       await s.limiter.hit(`search:ip:${c.get("clientIp")}`, 600, 3600);
       const assistant = await getAssistant(sql, widget.tenant_id, widget.assistant_id);
       if (!assistant) throw notFound("assistant");
-      const passages = await retrieve(sql, s.models.embeddings, s.log, {
+      const passages = await retrieve(sql, s.models, s.log, {
         tenantId: widget.tenant_id,
         sourceIds: assistant.source_ids,
         access: sess.access,
@@ -60,7 +60,7 @@ export function searchRoutes(app: Hono<AppEnv>, s: Services): void {
       const assistant = await getAssistant(sql, c.get("tenantId"), param(c, "id"));
       if (!assistant) throw notFound("assistant");
       const groups = (query.access ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-      const passages = await retrieve(sql, s.models.embeddings, s.log, {
+      const passages = await retrieve(sql, s.models, s.log, {
         tenantId: assistant.tenant_id,
         sourceIds: assistant.source_ids,
         access: ["public", ...groups],

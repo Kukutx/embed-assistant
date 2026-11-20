@@ -27,6 +27,7 @@ All settings are environment variables (a `.env` file works with Docker Compose 
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `llama3.2` |
 | `OLLAMA_VISION` | `false`: set `true` when `OLLAMA_MODEL` is a vision model (e.g. `llama3.2-vision`, `qwen2.5vl`) |
 | `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_API_KEY`, `EMBEDDINGS_MODEL` | (optional, any OpenAI-compatible `/embeddings`) |
+| `RERANK_BASE_URL`, `RERANK_API_KEY`, `RERANK_MODEL` | (optional, any `POST /rerank` endpoint in the Cohere shape: Cohere, Jina, vLLM, Infinity...) |
 | `MODELS_CONFIG` | Path to a JSON file that replaces all of the above. |
 
 Without `MODELS_CONFIG`, these aliases are generated from whatever is configured, in this order:
@@ -45,13 +46,16 @@ Without `MODELS_CONFIG`, these aliases are generated from whatever is configured
     { "id": "extractive", "provider": "builtin-extractive" }
   ],
   "aliases": { "standard": ["claude", "vllm", "extractive"] },
-  "embeddings": { "baseUrl": "https://api.openai.com/v1", "model": "text-embedding-3-small", "apiKey": "${OPENAI_API_KEY}" }
+  "embeddings": { "baseUrl": "https://api.openai.com/v1", "model": "text-embedding-3-small", "apiKey": "${OPENAI_API_KEY}" },
+  "rerank": { "baseUrl": "http://vllm-rerank:8000/v1", "model": "BAAI/bge-reranker-v2-m3" }
 }
 ```
 
 - Providers: `anthropic` (official SDK; `effort`, `baseUrl` optional), `openai-compatible` (`/chat/completions` streaming; `vision: true` when the model accepts images), `builtin-extractive` (no model, quotes sources).
 - Images visitors attach (widget `features.attachments`) are offered only when the alias's first available deployment can see images. Claude models always can. If a failover lands on a text-only deployment, the images are replaced by a note so the model asks the visitor to describe them instead of guessing.
 - A deployment without credentials is skipped. A failure *before the first token* moves to the next deployment; after text has streamed the run fails rather than mixing two answers.
+- A reranker is optional. When set, the best 20 fused search results are reordered by it before the top ones go to the model (`{model, query, documents, top_n}` in, `{results: [{index, relevance_score}]}` out). If it fails or takes more than 3 seconds, the fused order is used. It helps most with many similar documents; measure it with an evaluation before and after.
+- Prompt caching: with Claude, the instructions and the conversation so far are marked cacheable, so each new question mostly pays for its own sources. OpenAI-compatible servers that cache prompt prefixes benefit from the same stable order.
 - Changing the embeddings model is safe: chunks remember their model and dimension, and a vector index per dimension is created automatically. Re-sync sources to re-embed.
 
 ## Limits

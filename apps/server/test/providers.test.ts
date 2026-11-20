@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { toAnthropicMessages } from "../src/models/anthropic.js";
+import { toAnthropicMessages, withCacheMarkers } from "../src/models/anthropic.js";
 import { OpenAICompatibleChat, toOpenAIMessages } from "../src/models/openaiCompatible.js";
 import type { ChatChunk, ChatTurn } from "../src/models/types.js";
 import { redactPii } from "../src/lib/pii.js";
@@ -109,5 +109,33 @@ describe("helpers", () => {
     const secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
     const payload = '{"test": 2432232314}';
     expect(signWebhook(secret, "msg_p5jXN8AQM9LWM0D4loKWxJek", 1614265330, payload)).toBe("v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=");
+  });
+});
+
+describe("prompt cache markers", () => {
+  const cc = { type: "ephemeral" };
+  it("marks the turn before the new question", () => {
+    const m = withCacheMarkers([
+      { role: "user" as const, content: "first" },
+      { role: "assistant" as const, content: "answer" },
+      { role: "user" as const, content: "<sources>...</sources> second" },
+    ]);
+    expect(m[1]!.content).toEqual([{ type: "text", text: "answer", cache_control: cc }]);
+    expect(m[2]!.content).toBe("<sources>...</sources> second");
+  });
+  it("marks the last tool result in a tool loop, and leaves a first question alone", () => {
+    const toolTurn = { role: "user" as const, content: [{ type: "tool_result", tool_use_id: "t1", content: "x" }] };
+    const m = withCacheMarkers([{ role: "user" as const, content: "q" }, { role: "assistant" as const, content: [{ type: "tool_use", id: "t1", name: "s", input: {} }] }, toolTurn]);
+    expect(m[2]!.content).toEqual([{ type: "tool_result", tool_use_id: "t1", content: "x", cache_control: cc }]);
+    expect(toolTurn.content[0]).not.toHaveProperty("cache_control");
+    const single = [{ role: "user" as const, content: "q" }];
+    expect(withCacheMarkers(single)).toBe(single);
+  });
+  it("skips blocks that cannot carry a marker", () => {
+    const m = withCacheMarkers([
+      { role: "assistant" as const, content: [{ type: "text", text: "a" }, { type: "thinking", thinking: "..." }] },
+      { role: "user" as const, content: "q" },
+    ]);
+    expect(m[0]!.content).toEqual([{ type: "text", text: "a", cache_control: cc }, { type: "thinking", thinking: "..." }]);
   });
 });

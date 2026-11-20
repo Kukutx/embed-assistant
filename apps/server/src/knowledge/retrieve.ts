@@ -1,5 +1,6 @@
 import type { Logger } from "pino";
 import type { Sql } from "../db/pool.js";
+import type { Reranker } from "../models/rerank.js";
 import type { EmbeddingModel, SourcePassage } from "../models/types.js";
 import { queryTokens, searchTokens, termMatches, toTsQuery } from "./tokenize.js";
 
@@ -25,20 +26,31 @@ const RRF_K = 60;
 const PER_SOURCE_LIMIT = 24;
 /** Keyword-only hits must cover at least this share of the query's distinct tokens. */
 const MIN_KEYWORD_COVERAGE = 0.34;
+/** Fused candidates sent to the reranker, when one is configured. */
+const RERANK_CANDIDATES = 20;
+const RERANK_TIMEOUT_MS = 3000;
+
+/** The search models: embeddings for vector search, an optional reranker for the final order. */
+export interface SearchModels {
+  embeddings: EmbeddingModel | null;
+  reranker?: Reranker | null;
+}
 
 /**
  * Hybrid retrieval: full-text (always) + vector similarity (when an embedding
- * model is configured), fused with Reciprocal Rank Fusion. Access filtering
- * happens inside the SQL, before ranking, so the model never sees forbidden text.
+ * model is configured), fused with Reciprocal Rank Fusion, then reordered by a
+ * reranker when one is configured. Access filtering happens inside the SQL,
+ * before ranking, so the model never sees forbidden text.
  */
 export async function retrieve(
   sql: Sql,
-  embeddings: EmbeddingModel | null,
+  models: SearchModels,
   log: Logger,
   p: RetrieveParams,
 ): Promise<SourcePassage[]> {
   if (p.sourceIds.length === 0 || p.access.length === 0) return [];
   const limit = p.limit ?? 6;
+  const { embeddings, reranker } = models;
   const tokens = queryTokens(p.query);
   const tsq = toTsQuery(tokens);
 
@@ -94,10 +106,11 @@ export async function retrieve(
     return hit / queryTokenSet.size >= MIN_KEYWORD_COVERAGE;
   });
 
-  const ranked = [...scores.values()].sort((a, b) => b.score - a.score);
+  let ranked = [...scores.values()].sort((a, b) => b.score - a.score).map((x) => x.c);
+  if (reranker && ranked.length > 1) ranked = await rerankCandidates(reranker, log, p.query, ranked);
   const perDoc = new Map<string, number>();
   const picked: Candidate[] = [];
-  for (const { c } of ranked) {
+  for (const c of ranked) {
     const n = perDoc.get(c.document_id) ?? 0;
     if (n >= 2) continue;
     perDoc.set(c.document_id, n + 1);
@@ -112,4 +125,20 @@ export async function retrieve(
     heading: c.heading,
     content: c.content,
   }));
+}
+
+/** Reorder the best fused candidates with the reranker; on any failure keep the fused order. */
+async function rerankCandidates(reranker: Reranker, log: Logger, query: string, ranked: Candidate[]): Promise<Candidate[]> {
+  const head = ranked.slice(0, RERANK_CANDIDATES);
+  try {
+    const docs = head.map((c) => [c.title, c.heading, c.content].filter(Boolean).join("\n").slice(0, 4000));
+    const order = await reranker.rerank(query, docs, head.length, AbortSignal.timeout(RERANK_TIMEOUT_MS));
+    if (!order.length) return ranked;
+    const used = new Set(order);
+    // Candidates the reranker left out keep their fused order after the reranked ones.
+    return [...order.map((i) => head[i]!), ...head.filter((_, i) => !used.has(i)), ...ranked.slice(RERANK_CANDIDATES)];
+  } catch (err) {
+    log.warn({ err: (err as Error).message }, "rerank failed; using fused order");
+    return ranked;
+  }
 }

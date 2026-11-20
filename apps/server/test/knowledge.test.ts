@@ -15,6 +15,8 @@ import { createApp } from "../src/http/app.js";
 import type { Services } from "../src/http/env.js";
 import { detectKind, extractDocument, parseLlmsTxt } from "../src/knowledge/extract.js";
 import { ingestSource, scheduleDueSyncs } from "../src/knowledge/ingest.js";
+import { retrieve } from "../src/knowledge/retrieve.js";
+import { parseRerank } from "../src/models/rerank.js";
 import { createLogger } from "../src/lib/log.js";
 import { ModelRegistry } from "../src/models/registry.js";
 import { createServices } from "../src/services.js";
@@ -44,6 +46,13 @@ describe("document extraction", () => {
     await expect(extractDocument(Buffer.from([0, 1, 2, 255]), { contentType: "image/png", name: "a.png" })).rejects.toThrow(/unsupported/);
   });
 
+  it("reads rerank responses in their common shapes", () => {
+    expect(parseRerank({ results: [{ index: 1, relevance_score: 0.2 }, { index: 0, relevance_score: 0.9 }] }, 2)).toEqual([0, 1]);
+    expect(parseRerank({ data: [{ index: 2, relevance_score: 0.5 }, { index: 7, relevance_score: 1 }] }, 3)).toEqual([2]);
+    expect(parseRerank([{ index: 0, score: 0.1 }, { index: 0, score: 0.3 }, { index: 1, score: 0.2 }], 2)).toEqual([1, 0]);
+    expect(parseRerank({ nope: true }, 2)).toEqual([]);
+  });
+
   it("parses llms.txt links", () => {
     const md = "# Docs\n\n> Summary\n\n## Guides\n\n- [Install](/docs/install.md): how to\n- [API](https://x.example/api.md \"API\")\n- [Mail](mailto:a@b.c)\n- [Install again](/docs/install.md#top)\n";
     expect(parseLlmsTxt(md, "https://x.example/llms.txt")).toEqual(["https://x.example/docs/install.md", "https://x.example/api.md"]);
@@ -58,6 +67,7 @@ describe.skipIf(!DB)("knowledge sources (postgres)", () => {
   let base: string;
   let adminKey: string;
   let tenantId: string;
+  const reranked: { model: string; query: string; documents: string[]; top_n: number }[] = [];
 
   const admin = async (method: string, path: string, body?: unknown, status?: number) => {
     const r = await app.request(`/v1/admin${path}`, {
@@ -74,6 +84,17 @@ describe.skipIf(!DB)("knowledge sources (postgres)", () => {
     site = createServer((rq, rs) => {
       const send = (type: string, body: string | Buffer) => rs.writeHead(200, { "content-type": type }).end(body);
       if (rq.url === "/llms.txt") return send("text/plain", "# Site\n\n- [Setup](/setup.md)\n- [Returns](/returns.pdf)\n- [Gone](/missing.md)\n");
+      if (rq.url === "/rerank") {
+        // Puts the documents that mention "store credit" first.
+        let raw = "";
+        rq.on("data", (c) => (raw += c));
+        rq.on("end", () => {
+          reranked.push(JSON.parse(raw));
+          const { documents } = JSON.parse(raw) as { documents: string[] };
+          send("application/json", JSON.stringify({ results: documents.map((d, index) => ({ index, relevance_score: d.includes("store credit") ? 1 : 0 })) }));
+        });
+        return;
+      }
       if (rq.url === "/setup.md") return send("text/markdown", "# Setup guide\n\nInstall the agent with one command and restart.");
       if (rq.url === "/returns.pdf") return send("application/pdf", fixture("returns.pdf"));
       rs.writeHead(404).end();
@@ -134,6 +155,25 @@ describe.skipIf(!DB)("knowledge sources (postgres)", () => {
     expect(refused.status).toBe(400);
     const empty = await app.request(`/v1/admin/sources/${src.id}/files`, { method: "POST", headers: { authorization: `Bearer ${adminKey}` }, body: new FormData() });
     expect(empty.status).toBe(400);
+  });
+
+  it("reorders search results with a reranker, and falls back to the fused order", async () => {
+    const src = await admin("POST", "/sources", { name: "Refunds", type: "manual" }, 201);
+    await admin("PUT", `/sources/${src.id}/documents`, { title: "Refund policy", content: "# Refunds\n\nRefund requests are paid back to the card within 30 days." }, 200);
+    await admin("PUT", `/sources/${src.id}/documents`, { title: "Gift cards", content: "# Gift cards\n\nA refund for a gift card purchase is given as store credit." }, 200);
+    const p = { tenantId, sourceIds: [src.id], access: ["public"], query: "refund" };
+    const fused = await retrieve(sql, { embeddings: null }, s.log, p);
+    expect(fused.map((x) => x.title).sort()).toEqual(["Gift cards", "Refund policy"]);
+
+    const withRerank = new ModelRegistry({ deployments: [{ id: "extractive", provider: "builtin-extractive" }], aliases: { standard: ["extractive"] }, rerank: { id: "r", baseUrl: base, model: "rr-1" } });
+    const out = await retrieve(sql, withRerank, s.log, p);
+    expect(out.map((x) => x.title)).toEqual(["Gift cards", "Refund policy"]);
+    expect(out.map((x) => x.index)).toEqual([1, 2]);
+    expect(reranked.at(-1)).toMatchObject({ model: "rr-1", query: "refund", top_n: 2 });
+    expect(reranked.at(-1)!.documents[0]).toMatch(/^(Refund policy|Gift cards)\n/);
+
+    const broken = { embeddings: null, reranker: { id: "x", model: "x", rerank: async () => Promise.reject(new Error("down")) } };
+    expect((await retrieve(sql, broken, s.log, p)).map((x) => x.title)).toEqual(fused.map((x) => x.title));
   });
 
   it("re-tags passages when access changes", async () => {

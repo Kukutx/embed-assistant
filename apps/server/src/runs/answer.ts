@@ -95,7 +95,7 @@ export async function answerOnce(deps: AnswerDeps, p: AnswerInput): Promise<Answ
     ...over,
   });
 
-  const find = (q: string) => retrieve(deps.sql, deps.models.embeddings, deps.log, { tenantId: p.tenantId, sourceIds: a.source_ids, access, query: q });
+  const find = (q: string) => retrieve(deps.sql, deps.models, deps.log, { tenantId: p.tenantId, sourceIds: a.source_ids, access, query: q });
   const lastUser = [...history].reverse().find((t) => t.role === "user")?.content;
   const [blocked, sources] = await Promise.all([
     checkQuestion(deps, { alias: aux, question: p.question, previous: lastUser, guardrails: g, terms, signal }),

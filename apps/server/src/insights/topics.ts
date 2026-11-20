@@ -341,7 +341,7 @@ export async function analyzeTopicsJob(deps: TopicDeps, job: JobRow): Promise<vo
       const passages: Awaited<ReturnType<typeof retrieve>> = [];
       if (sourceIds.length) {
         for (const example of t.examples.slice(0, 3)) {
-          const found = await retrieve(sql, deps.models.embeddings, deps.log, { tenantId: r.tenant_id, sourceIds, access, query: example, limit: 3 }).catch((err: unknown) => {
+          const found = await retrieve(sql, deps.models, deps.log, { tenantId: r.tenant_id, sourceIds, access, query: example, limit: 3 }).catch((err: unknown) => {
             deps.log.warn({ err, reportId: r.id }, "topic retrieval failed");
             return [];
           });

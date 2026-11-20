@@ -47,6 +47,10 @@ const EnvSchema = z.object({
   EMBEDDINGS_BASE_URL: z.string().url().optional(),
   EMBEDDINGS_API_KEY: z.string().optional(),
   EMBEDDINGS_MODEL: z.string().optional(),
+  /** Optional reranker with a `POST {base}/rerank` endpoint (Cohere, Jina, vLLM, Infinity...). */
+  RERANK_BASE_URL: z.string().url().optional(),
+  RERANK_API_KEY: z.string().optional(),
+  RERANK_MODEL: z.string().optional(),
   /** Per-session and per-IP limits for creating runs. */
   RATE_LIMIT_RUNS_PER_MINUTE: z.coerce.number().int().min(1).default(10),
   RATE_LIMIT_RUNS_PER_HOUR_IP: z.coerce.number().int().min(1).default(600),

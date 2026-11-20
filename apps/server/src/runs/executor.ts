@@ -284,7 +284,7 @@ export class RunExecutor {
         : job.userMessage.content;
       const retrieveFor = (q: string) =>
         withSpan("retrieval", { attributes: { "embed_assistant.source_count": a.source_ids.length } }, async (span) => {
-          const r = await retrieve(sql, this.models.embeddings, this.log, { tenantId: job.tenantId, sourceIds: a.source_ids, access: job.access, query: q });
+          const r = await retrieve(sql, this.models, this.log, { tenantId: job.tenantId, sourceIds: a.source_ids, access: job.access, query: q });
           span.setAttribute("embed_assistant.passages", r.length);
           return r;
         });

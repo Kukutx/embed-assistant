@@ -6,7 +6,7 @@ It is built to be generic and boring to operate:
 
 - **Any site, any stack.** One `<script>` tag (or `window.EmbedAssistantConfig`). The UI lives in a Shadow DOM, so it never clashes with your CSS or framework. No adapters to maintain.
 - **Any model.** Claude via the official Anthropic SDK, any OpenAI-compatible endpoint (OpenAI, Azure OpenAI, vLLM, LiteLLM, LM Studio, Ollama…), and a built-in offline mode that answers by quoting your docs. Assistants use *aliases* with automatic failover, so you can switch vendors without touching anything else.
-- **Grounded answers with citations.** Crawl a website or sitemap, or push documents from any system over HTTP. Hybrid search (multilingual keyword search, plus vectors when you configure embeddings).
+- **Grounded answers with citations.** Crawl a website or sitemap, or push documents from any system over HTTP. Hybrid search (multilingual keyword search, plus vectors when you configure embeddings, plus an optional reranker).
 - **Knows who is asking, safely.** Your backend signs a short JWT; the assistant only searches knowledge that user may read. Filtering happens in SQL before the model sees anything.
 - **One dependency.** Node.js and Postgres (with pgvector). No Redis, no queue service. Multi-instance safe.
 - **Takes actions, not just answers.** Call your HTTP APIs as tools (signed requests, optional visitor confirmation), run functions in the visitor's page (`EmbedAssistant.registerTool`), and hand the conversation to a person with a summary. Write **playbooks** (procedures in plain language) that it follows step by step, and pick its tone and answer length. See [docs/tools.md](docs/tools.md).

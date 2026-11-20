@@ -6,6 +6,7 @@ import type { Config } from "../config.js";
 import { AnthropicChat } from "./anthropic.js";
 import { ExtractiveChat } from "./extractive.js";
 import { OpenAICompatibleChat, OpenAICompatibleEmbeddings } from "./openaiCompatible.js";
+import { HttpReranker, type Reranker } from "./rerank.js";
 import type { ChatChunk, ChatModel, ChatRequest, EmbeddingModel } from "./types.js";
 import { ModelError } from "./types.js";
 
@@ -42,6 +43,10 @@ const ModelsFileSchema = z.object({
   aliases: z.record(z.string(), z.array(z.string()).min(1)),
   embeddings: z
     .object({ id: z.string().default("embeddings"), baseUrl: z.string(), model: z.string(), apiKey: z.string().optional() })
+    .optional(),
+  /** Optional reranker (`POST {baseUrl}/rerank`), applied to the fused search results. */
+  rerank: z
+    .object({ id: z.string().default("rerank"), baseUrl: z.string(), model: z.string(), apiKey: z.string().optional() })
     .optional(),
 });
 export type ModelsFile = z.infer<typeof ModelsFileSchema>;
@@ -107,6 +112,9 @@ export function defaultModelsFile(cfg: Config): ModelsFile {
       apiKey: cfg.EMBEDDINGS_API_KEY,
     };
   }
+  if (cfg.RERANK_BASE_URL && cfg.RERANK_MODEL) {
+    file.rerank = { id: "rerank", baseUrl: cfg.RERANK_BASE_URL, model: cfg.RERANK_MODEL, apiKey: cfg.RERANK_API_KEY };
+  }
   return file;
 }
 
@@ -124,6 +132,7 @@ export interface RoutedChunk {
 export class ModelRegistry {
   private readonly deployments = new Map<string, ChatModel>();
   readonly embeddings: EmbeddingModel | null;
+  readonly reranker: Reranker | null;
 
   constructor(
     private readonly file: ModelsFile,
@@ -138,6 +147,8 @@ export class ModelRegistry {
     }
     const e = file.embeddings;
     this.embeddings = e ? new OpenAICompatibleEmbeddings({ id: e.id, baseUrl: e.baseUrl, model: e.model, apiKey: e.apiKey }) : null;
+    const r = file.rerank;
+    this.reranker = r ? new HttpReranker({ id: r.id, baseUrl: r.baseUrl, model: r.model, apiKey: r.apiKey }) : null;
   }
 
   /** Register or replace a deployment programmatically (tests, plugins). */

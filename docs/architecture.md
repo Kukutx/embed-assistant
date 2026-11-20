@@ -24,7 +24,7 @@
 ## A question, end to end
 
 1. The widget posts the question. The server checks the session, origin, rate limits and daily budget, then, in one transaction guarded by a per-conversation advisory lock, stores the user message and a `queued` run.
-2. The run executor (in the same process) retrieves passages: full-text search (language-neutral tokens; CJK as bigrams; word-form folding with prefix matching) and, when configured, vector search, fused with Reciprocal Rank Fusion. The access-tag filter is part of both SQL queries.
+2. The run executor (in the same process) retrieves passages: full-text search (language-neutral tokens; CJK as bigrams; word-form folding with prefix matching) and, when configured, vector search, fused with Reciprocal Rank Fusion, then reordered by a reranker when one is configured. The access-tag filter is part of both SQL queries.
 3. The prompt keeps the system instructions stable (cache-friendly) and puts sources and page context in delimited blocks marked as untrusted data.
 4. The model router streams from the first available deployment of the assistant's alias. Text is flushed as `message.delta` events every 50 ms or 160 characters.
 5. Every event is written to `run_events` and announced via an in-process emitter plus `pg_notify`. SSE handlers read rows after their last sequence number, so streams resume after disconnects and work across instances.

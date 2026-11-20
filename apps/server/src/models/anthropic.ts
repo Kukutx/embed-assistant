@@ -51,7 +51,7 @@ export class AnthropicChat implements ChatModel {
           max_tokens: req.maxOutputTokens,
           // Stable instructions first and marked cacheable; sources travel in the user turn.
           system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
-          messages: toAnthropicMessages(req.messages),
+          messages: withCacheMarkers(toAnthropicMessages(req.messages)),
           ...(req.tools?.length
             ? { tools: req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters as never })) }
             : {}),
@@ -145,4 +145,39 @@ function toModelError(err: unknown): ModelError {
     return new ModelError(`anthropic ${status}: ${err.message}`, status === 0 || isRetryableStatus(status), status);
   }
   return new ModelError(`anthropic: ${(err as Error)?.message ?? String(err)}`, false);
+}
+
+const CACHEABLE = new Set(["text", "image", "tool_use", "tool_result"]);
+
+/**
+ * Prompt-cache breakpoints on the conversation (the system prompt has its own):
+ * - in a tool loop (the request ends in tool results), on the last block, so the
+ *   next step re-reads the whole prefix, sources included, from the cache;
+ * - otherwise on the turn before the new question, so the conversation so far is
+ *   read from the cache and the question with its fresh sources is the only new input.
+ * Never more than two markers here (the API allows four per request). The input is not modified.
+ */
+export function withCacheMarkers<T extends { role: "user" | "assistant"; content: unknown }>(messages: T[]): T[] {
+  if (!messages.length) return messages;
+  const last = messages[messages.length - 1]!;
+  const isToolResults = Array.isArray(last.content) && last.content.length > 0 && last.content.every((b: { type?: string }) => b?.type === "tool_result");
+  const at = isToolResults ? messages.length - 1 : messages.length - 2;
+  if (at < 0) return messages;
+  const marked = mark(messages[at]!.content);
+  if (!marked) return messages;
+  const out = [...messages];
+  out[at] = { ...messages[at]!, content: marked };
+  return out;
+}
+
+function mark(content: unknown): unknown[] | null {
+  const blocks: unknown[] =
+    typeof content === "string" ? (content ? [{ type: "text", text: content }] : []) : Array.isArray(content) ? [...content] : [];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i] as { type?: string; text?: string };
+    if (!b || !CACHEABLE.has(b.type ?? "") || (b.type === "text" && !b.text)) continue;
+    blocks[i] = { ...b, cache_control: { type: "ephemeral" } };
+    return blocks;
+  }
+  return null;
 }
