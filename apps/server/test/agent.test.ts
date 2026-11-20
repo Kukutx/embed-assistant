@@ -305,7 +305,9 @@ describe.skipIf(!DB)("agent features (postgres)", () => {
     await json(req("POST", `/v1/runs/${run.run.id}/tool-results`, { token, body: { callId: reqd.callId, approved: true } }), 409);
     const evs = await allEvents(run.run.id);
     const answer = evs.find((e) => e.type === "message.completed")!.data.message.content as string;
-    expect(answer).toMatch(/^Let me cancel it\.\n\nDone: \{"cancelled":true\}/);
+    // What the model wrote before the tool call was streamed, but the saved answer is what followed it.
+    expect(evs.filter((e) => e.type === "message.delta").map((e) => e.data.text).join("")).toMatch(/^Let me cancel it\./);
+    expect(answer).toMatch(/^Done: \{"cancelled":true\}/);
     const hit = hits.find((h) => h.url === "/orders/A-42/cancel")!;
     expect(JSON.parse(hit.body)).toEqual({ reason: "changed mind" });
 

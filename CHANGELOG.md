@@ -2,6 +2,10 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.21
+
+- **Answers no longer start with "Let me look that up"**: text the model writes before calling a tool (a search, an action) is not kept in the saved answer when an answer follows the call; the widget replaces it when the answer completes. If nothing follows (for example a handoff after the answer), it is kept. The search instruction also tells the model not to announce searches.
+
 ## 1.0.20
 
 Ready for a privacy review.

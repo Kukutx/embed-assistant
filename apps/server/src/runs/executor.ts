@@ -386,6 +386,8 @@ export class RunExecutor {
       let refused = false;
       const watch = new AnswerWatch(terms);
       let answerTerm: string | null = null;
+      /** Where the text after the last tool call starts: what the model wrote before calling a tool is not the answer. */
+      let answerStart = 0;
       for (let step = 0; step < MAX_TOOL_STEPS && !blocked && !answerTerm; step++) {
         const lastStep = step === MAX_TOOL_STEPS - 1;
         let stepText = "";
@@ -431,7 +433,11 @@ export class RunExecutor {
           results.push({ callId: call.id, name: call.name, content: r.content, isError: r.isError });
         }
         transcript.push({ role: "tool", results });
+        answerStart = text.length;
       }
+      // "Let me look that up." before a search reads oddly in the saved answer; keep it only
+      // when nothing followed the tool call (e.g. a handoff after the answer).
+      if (answerStart && !answerTerm && text.slice(answerStart).trim()) text = text.slice(answerStart).replace(/^\s+/, "");
       if (blocked) await push(blocked.message);
       else if (answerTerm) {
         // Text already streamed is replaced: message.completed carries the final content.

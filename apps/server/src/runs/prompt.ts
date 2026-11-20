@@ -29,7 +29,7 @@ export function buildSystemPrompt(
   const toolRules = t
     ? [
         t.search
-          ? "If the sources do not answer the question, call search_knowledge with better keywords (up to a few times) before saying you don't know. Its results are numbered sources you can cite."
+          ? "If the sources do not answer the question, call search_knowledge with better keywords (up to a few times) before saying you don't know. Its results are numbered sources you can cite. Call it without announcing it first."
           : "",
         t.actions
           ? "Use the other tools when they help the user (look something up, perform a task they asked for). Ask for missing required details instead of guessing them. Never claim an action happened unless a tool result confirms it."
