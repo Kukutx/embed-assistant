@@ -1,0 +1,30 @@
+# Single server (Docker Compose + Caddy)
+
+The cheapest production-shaped setup: one Linux VM (a free Oracle Cloud Arm instance, or any VPS with 1+ vCPU and 2+ GB RAM) running Postgres, the server and Caddy, which obtains and renews HTTPS certificates. The image is built for amd64 and arm64.
+
+```bash
+# On the server, as root (or with sudo):
+curl -fsSL https://raw.githubusercontent.com/Kukutx/embed-assistant/main/deploy/single-server/install.sh -o install.sh
+sudo DOMAIN=assistant.example.com KEYS_FILE=./keys.env bash install.sh
+```
+
+- `DOMAIN`: point its DNS A record at the server first. Without a domain, leave it out and the script uses `<public-ip>.sslip.io` (a free name that resolves to the IP), which also gets a certificate.
+- `KEYS_FILE`: `KEY=value` lines merged into `.env`, for example `ANTHROPIC_API_KEY=…` and `OPENAI_API_KEY=…`. An OpenRouter key (`sk-or-…`) is pointed at OpenRouter automatically, as the failover provider.
+- Open TCP 80 and 443 in the cloud's network rules (Oracle: the VCN security list). The script opens the VM's own firewall.
+
+The script prints the console URL and the first admin key (also saved in `/opt/embed-assistant/first-run.txt`, readable by root only). Running it again keeps the existing settings, data and certificates.
+
+## Operations
+
+| Task | Command (in `/opt/embed-assistant`) |
+| --- | --- |
+| Logs | `docker compose logs -f server` |
+| Upgrade | set `EMBED_ASSISTANT_VERSION` in `.env`, then `docker compose pull && docker compose up -d` |
+| Change settings | edit `.env`, then `docker compose up -d` |
+| Backup now | `./backup.sh` (daily at 03:30 by cron; 14 kept in `backups/`) |
+| Off-site backups | set `BACKUP_UPLOAD_URL` in `.env` to a write URL prefix, e.g. an Oracle Object Storage pre-authenticated request ending in `/o/` |
+| Restore | `docker compose exec -T db pg_restore -U postgres -d embed_assistant --clean --if-exists < backups/<file>.dump` |
+
+## Moving later
+
+Nothing here is tied to the host. To move to a managed database (Supabase, Neon, RDS, Cloud SQL, Azure), restore a backup there with `pg_restore` and set `DATABASE_URL`; to move the app, run the same image on any container platform or with the [Helm chart](../helm/embed-assistant). Keep `SECRET_KEY` with it: stored secrets are encrypted with it.

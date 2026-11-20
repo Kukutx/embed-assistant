@@ -1,0 +1,8 @@
+# HTTPS certificates are obtained and renewed automatically for {$DOMAIN}.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy server:8787 {
+		# Stream answers (Server-Sent Events) without buffering.
+		flush_interval -1
+	}
+}

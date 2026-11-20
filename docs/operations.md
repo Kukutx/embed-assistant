@@ -10,6 +10,11 @@ Node.js process; all state is in Postgres.
 volume you back up, and set `PUBLIC_BASE_URL` to the HTTPS URL behind your
 reverse proxy (`TRUST_PROXY=true` there).
 
+**One VM with HTTPS** (a free Oracle Cloud Arm instance, any VPS):
+[`deploy/single-server`](../deploy/single-server/) installs Docker, Postgres,
+the server and Caddy (automatic certificates), opens the firewall and
+schedules daily backups with one command.
+
 **Kubernetes**: the Helm chart in [`deploy/helm/embed-assistant`](../deploy/helm/embed-assistant)
 runs the server with a hardened pod (non-root, read-only root filesystem, no
 capabilities, no service account token), startup/liveness/readiness probes,

@@ -28,7 +28,7 @@ Then in `.env`:
 | `EMBEDDINGS_*` (optional) | Vector search; helps when visitors use different words than the pages |
 | `TRUST_PROXY=true` | Only if a reverse proxy you control terminates HTTPS in front of the server |
 
-Run `docker compose up -d` again after changing `.env`. Put the server behind HTTPS (Caddy, nginx, a load balancer) with response buffering off for `/v1/runs/*/events` ([details](operations.md#deploying)). For production, use the published image `ghcr.io/kukutx/embed-assistant:<version>` and a managed Postgres with backups ([backups](operations.md#backups-and-restore)).
+Run `docker compose up -d` again after changing `.env`. On a single VM (for example a free Oracle Cloud Arm instance), [deploy/single-server](../deploy/single-server/) installs everything with automatic HTTPS and daily backups in one command. Put the server behind HTTPS (Caddy, nginx, a load balancer) with response buffering off for `/v1/runs/*/events` ([details](operations.md#deploying)). For production, use the published image `ghcr.io/kukutx/embed-assistant:<version>` and a managed Postgres with backups ([backups](operations.md#backups-and-restore)).
 
 ## 3. Connect the knowledge
 
