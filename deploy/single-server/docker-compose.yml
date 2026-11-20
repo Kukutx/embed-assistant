@@ -20,7 +20,8 @@ services:
     image: ghcr.io/kukutx/embed-assistant:${EMBED_ASSISTANT_VERSION:-latest}
     env_file: .env
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/embed_assistant
+      # Set DATABASE_URL in .env to use another Postgres (managed, with pgvector).
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:${POSTGRES_PASSWORD}@db:5432/embed_assistant}
       PUBLIC_BASE_URL: https://${DOMAIN:?set in .env}
       TRUST_PROXY: "true"
     depends_on:
@@ -38,6 +39,7 @@ services:
       DOMAIN: ${DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

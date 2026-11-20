@@ -55,10 +55,15 @@ echo "Also allow TCP 80 and 443 in your cloud's network rules (on Oracle: the VC
 
 say "Preparing $DIR"
 mkdir -p "$DIR" && cd "$DIR"
-for f in docker-compose.yml Caddyfile backup.sh; do
-  if [ -n "$HERE" ] && [ -f "$HERE/$f" ] && [ "$HERE" != "$DIR" ]; then cp "$HERE/$f" "$f"; elif [ ! -f "$f" ]; then curl -fsSL "$RAW/$f" -o "$f"; fi
+# docker-compose.yml and backup.sh are replaced on every run (settings live in .env);
+# Caddyfile only when missing, since you may edit it (other sites go in sites/*.caddy).
+for f in docker-compose.yml backup.sh Caddyfile; do
+  [ "$f" = Caddyfile ] && [ -f "$f" ] && continue
+  if [ -n "$HERE" ] && [ -f "$HERE/$f" ] && [ "$HERE" != "$DIR" ]; then cp "$HERE/$f" "$f.new"; else curl -fsSL "$RAW/$f" -o "$f.new"; fi
+  mv "$f.new" "$f"
 done
 chmod +x backup.sh
+mkdir -p sites
 
 rand() { head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-"$1"; }
 setenv() { # setenv KEY VALUE: set only when the key is not in .env yet

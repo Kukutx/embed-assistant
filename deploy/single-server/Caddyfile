@@ -6,3 +6,7 @@
 		flush_interval -1
 	}
 }
+
+# Other sites on this server (one file per site, e.g. sites/www.caddy); reload with
+#   docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+import /etc/caddy/sites/*.caddy
