@@ -5,7 +5,7 @@ import { verifyUserToken } from "../src/auth/userToken.js";
 import { chunkText } from "../src/knowledge/chunk.js";
 import { extractPage, parseSitemap } from "../src/knowledge/html.js";
 import { isPrivateAddress } from "../src/knowledge/safeFetch.js";
-import { queryTokens, searchTokens, stem, toTsQuery } from "../src/knowledge/tokenize.js";
+import { queryTokens, searchTokens, stem, termMatches, toTsQuery } from "../src/knowledge/tokenize.js";
 import { decrypt, deriveKey, encrypt } from "../src/lib/crypto.js";
 import { ModelRegistry } from "../src/models/registry.js";
 import { ModelError, type ChatChunk, type ChatModel, type ChatRequest } from "../src/models/types.js";
@@ -21,6 +21,15 @@ describe("tokenize", () => {
     expect(stem("api")).toBe("api");
     expect(toTsQuery(["reset", "密码", "a1"])).toBe("reset:* | 密码 | a1");
     expect(toTsQuery([])).toBeNull();
+  });
+  it("matches word forms and the end of compounds", () => {
+    const doc = new Set(["embedding", "website", "rechnungszahlung", "密码"]);
+    expect(termMatches("embedd", doc)).toBe(true);
+    expect(termMatches("site", doc)).toBe(true);
+    expect(termMatches("zahlung", doc)).toBe(true);
+    expect(termMatches("web", doc)).toBe(true);
+    expect(termMatches("ite", doc)).toBe(false); // too short to match inside a word
+    expect(termMatches("码", doc)).toBe(false);
   });
   it("is injection-safe", () => {
     expect(toTsQuery(queryTokens("x') | !(&:* billing"))).toBe("bill:*");

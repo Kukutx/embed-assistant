@@ -86,11 +86,16 @@ export function queryTokens(question: string): string[] {
   return [...seen];
 }
 
-/** True when any document token matches the query term (prefix match for words, exact for CJK). */
+/**
+ * True when any document token matches the query term: exact for CJK; for words, by prefix
+ * ("embed" finds "embedding") or, for terms of 4+ letters, as the end of a compound
+ * ("site" finds "website", "zahlung" finds "rechnungszahlung").
+ */
 export function termMatches(term: string, docTokens: Set<string>): boolean {
   if (docTokens.has(term)) return true;
   if (!isPrefixTerm(term)) return false;
-  for (const d of docTokens) if (d.startsWith(term)) return true;
+  const tail = term.length >= 4;
+  for (const d of docTokens) if (d.startsWith(term) || (tail && d.endsWith(term))) return true;
   return false;
 }
 

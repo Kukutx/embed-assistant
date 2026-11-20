@@ -59,7 +59,7 @@ Everything runs with one Postgres database (with pgvector). No other infrastruct
     content: `# Adding knowledge
 
 ## Crawl a website
-Create a knowledge source of type url (one page) or sitemap (many pages). The server crawls it in the background and keeps it up to date when you press sync. Pages that disappear are removed.
+Create a knowledge source of type website (a start page; links on the same site are followed), sitemap (a sitemap.xml or llms.txt) or url (one page). The server crawls it in the background and keeps it up to date on a schedule or when you press sync. Pages that disappear are removed.
 
 ## Push documents
 For content that is not on a public website, create a manual source and push documents with PUT /v1/admin/sources/{id}/documents from any system: a CMS, a ticketing tool, a docs build or a script. Sending the same externalId again replaces the document.
