@@ -4,7 +4,7 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
-- **Off-site backups on Oracle Cloud in one step**: `deploy/oracle-cloud/offsite-backup.sh` (run in Cloud Shell) creates a private bucket and a write-only upload URL and hands it to the VM through instance metadata; `backup.sh` uploads each daily backup there.
+- **Off-site backups on Oracle Cloud in one step**: `deploy/oracle-cloud/offsite-backup.sh` (run in Cloud Shell) creates a private bucket and a write-only upload URL and hands it to the VM through instance metadata; `backup.sh` uploads each daily backup there. Backup files are now readable by root only.
 
 ## 1.0.16
 

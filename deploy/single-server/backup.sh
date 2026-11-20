@@ -7,7 +7,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 set -a; . ./.env; set +a
-mkdir -p backups
+umask 077  # dumps hold all data, including encrypted secrets
+mkdir -p backups && chmod 700 backups
 name="embed-assistant-$(date -u +%Y%m%d-%H%M%S).dump"
 docker compose exec -T db pg_dump -U postgres --format=custom --no-owner embed_assistant > "backups/$name"
 find backups -name 'embed-assistant-*.dump' -mtime +14 -delete
