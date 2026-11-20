@@ -321,7 +321,7 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
               const ids = batch.map((b) => b.id);
               const msgs = await sql<{ conversation_id: string; id: string; role: string; content: string; citations: unknown; feedback: string | null; feedback_comment: string | null; tool_calls: unknown; status: string; created_at: Date }[]>`
                 SELECT conversation_id, id, role, content, citations, feedback, feedback_comment, tool_calls, status, created_at
-                FROM messages WHERE tenant_id = ${tenantId} AND conversation_id = ANY(${sql.array(ids)}) ORDER BY created_at, id`;
+                FROM messages WHERE tenant_id = ${tenantId} AND conversation_id = ANY(${ids}) ORDER BY created_at, id`;
               const byConv = new Map<string, unknown[]>();
               for (const m of msgs) {
                 const list = byConv.get(m.conversation_id) ?? [];

@@ -52,7 +52,7 @@ export const toMcpServer = (r: McpServerRow): McpServer => ({
 export async function listMcpServers(sql: Tx, tenantId: string, ids?: string[]): Promise<McpServerRow[]> {
   return sql<McpServerRow[]>`
     SELECT * FROM mcp_servers WHERE tenant_id = ${tenantId}
-    ${ids ? sql`AND id = ANY(${sql.array(ids)})` : sql``}
+    ${ids ? sql`AND id = ANY(${ids})` : sql``}
     ORDER BY created_at`;
 }
 
@@ -66,8 +66,8 @@ export async function createMcpServer(sql: Tx, key: Buffer, tenantId: string, a:
   const rows = await sql<McpServerRow[]>`
     INSERT INTO mcp_servers (id, tenant_id, name, title, url, headers, header_names, confirm, require_user, allowed_tools, enabled)
     VALUES (${newId("mcp")}, ${tenantId}, ${a.name}, ${a.title}, ${a.url},
-            ${names.length ? encrypt(key, JSON.stringify(a.headers)) : null}, ${sql.array(names)},
-            ${a.confirm}, ${a.requireUser}, ${a.allowedTools ? sql.array(a.allowedTools) : null}, ${a.enabled})
+            ${names.length ? encrypt(key, JSON.stringify(a.headers)) : null}, ${names},
+            ${a.confirm}, ${a.requireUser}, ${a.allowedTools ? a.allowedTools : null}, ${a.enabled})
     RETURNING *`;
   return rows[0]!;
 }
@@ -81,9 +81,9 @@ export async function updateMcpServer(sql: Tx, key: Buffer, tenantId: string, id
   const rows = await sql<McpServerRow[]>`
     UPDATE mcp_servers SET
       name = ${p.name ?? c.name}, title = ${p.title ?? c.title}, url = ${p.url ?? c.url},
-      headers = ${headers}, header_names = ${sql.array(headerNames)},
+      headers = ${headers}, header_names = ${headerNames},
       confirm = ${p.confirm ?? c.confirm}, require_user = ${p.requireUser ?? c.require_user},
-      allowed_tools = ${allowed ? sql.array(allowed) : null}, enabled = ${p.enabled ?? c.enabled}, updated_at = now()
+      allowed_tools = ${allowed ? allowed : null}, enabled = ${p.enabled ?? c.enabled}, updated_at = now()
     WHERE tenant_id = ${tenantId} AND id = ${id}
     RETURNING *`;
   return rows[0] ?? null;

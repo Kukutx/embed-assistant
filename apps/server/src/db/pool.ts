@@ -10,5 +10,7 @@ export function createSql(url: string, max: number): Sql {
     onnotice: () => {},
     // Keep timestamps as Date objects; JSON columns parsed automatically.
     transform: { undefined: null },
+    // Type parameters on the client as v3 did (Date as timestamptz, arrays by element).
+    infer: true,
   });
 }

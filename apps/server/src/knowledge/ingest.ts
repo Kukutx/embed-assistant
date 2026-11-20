@@ -88,7 +88,7 @@ export async function upsertDocument(
         INSERT INTO chunks (id, tenant_id, source_id, document_id, ord, heading, content, search_text, access,
                             embedding, embedding_model, embedding_dim)
         VALUES (${newId("chk")}, ${source.tenant_id}, ${source.id}, ${docId}, ${i}, ${c.heading}, ${c.content},
-                ${toSearchText(`${doc.title} ${c.heading ?? ""} ${c.content}`)}, ${tx.array(source.access)},
+                ${toSearchText(`${doc.title} ${c.heading ?? ""} ${c.content}`)}, ${source.access},
                 ${vec ? `[${vec.join(",")}]` : null}::vector, ${vec ? deps.embeddings!.model : null}, ${vec ? vec.length : null})`;
     }
     return { id: docId, changed: true };
@@ -147,7 +147,7 @@ export async function ingestSource(deps: IngestDeps, tenantId: string, sourceId:
     if (seen.size === 0) throw new Error(`no pages could be ingested (${failures} failed)`);
     // Only prune when most pages succeeded, so a flaky crawl doesn't wipe the index.
     if (failures <= pages.length * 0.2) {
-      await deps.sql`DELETE FROM documents WHERE source_id = ${sourceId} AND NOT (external_id = ANY(${deps.sql.array([...seen])}))`;
+      await deps.sql`DELETE FROM documents WHERE source_id = ${sourceId} AND NOT (external_id = ANY(${[...seen]}))`;
     }
     await setSourceStatus(deps.sql, tenantId, sourceId, "succeeded", failures ? `${failures} page(s) failed` : null);
     await emitWebhook(deps.sql, tenantId, "source.synced", { sourceId, status: "succeeded", pages: seen.size, failures }).catch(() => {});

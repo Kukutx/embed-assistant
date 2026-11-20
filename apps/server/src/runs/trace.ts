@@ -46,7 +46,7 @@ export async function conversationTraces(sql: Sql, tenantId: string, conversatio
   runs.reverse();
   const events = await sql<EventRow[]>`
     SELECT run_id, seq, type, CASE WHEN type = 'message.delta' THEN '{}'::jsonb ELSE data END AS data, created_at FROM run_events
-    WHERE run_id = ANY(${sql.array(runs.map((r) => r.id))}) ORDER BY run_id, seq`;
+    WHERE run_id = ANY(${runs.map((r) => r.id)}) ORDER BY run_id, seq`;
   const byRun = new Map<string, EventRow[]>();
   for (const e of events) {
     const list = byRun.get(e.run_id);

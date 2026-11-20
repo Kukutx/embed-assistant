@@ -47,7 +47,7 @@ export async function getWebhook(sql: Tx, tenantId: string, id: string): Promise
 export async function createWebhook(sql: Tx, key: Buffer, tenantId: string, w: WebhookInput, secret: string): Promise<WebhookRow> {
   const rows = await sql<WebhookRow[]>`
     INSERT INTO webhooks (id, tenant_id, url, description, events, enabled, secret)
-    VALUES (${newId("whk")}, ${tenantId}, ${w.url}, ${w.description}, ${sql.array(w.events)}, ${w.enabled}, ${encrypt(key, secret)})
+    VALUES (${newId("whk")}, ${tenantId}, ${w.url}, ${w.description}, ${w.events}, ${w.enabled}, ${encrypt(key, secret)})
     RETURNING *`;
   return rows[0]!;
 }
@@ -63,7 +63,7 @@ export async function updateWebhook(
   if (!c) return null;
   const rows = await sql<WebhookRow[]>`
     UPDATE webhooks SET url = ${p.url ?? c.url}, description = ${p.description ?? c.description},
-      events = ${sql.array(p.events ?? c.events)}, enabled = ${p.enabled ?? c.enabled},
+      events = ${p.events ?? c.events}, enabled = ${p.enabled ?? c.enabled},
       secret = ${p.secret ? encrypt(key, p.secret) : c.secret}, updated_at = now()
     WHERE tenant_id = ${tenantId} AND id = ${id}
     RETURNING *`;

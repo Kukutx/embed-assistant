@@ -177,7 +177,7 @@ const TOOLS: ServerTool[] = [
       const rows = await s.sql<{ title: string; url: string | null; heading: string | null; content: string }[]>`
         SELECT d.title, d.url, c.heading, c.content
         FROM chunks c JOIN documents d ON d.id = c.document_id
-        WHERE c.tenant_id = ${key.tenant_id} AND c.document_id = ${String(args.documentId)} AND c.access && ${s.sql.array(key.access)}
+        WHERE c.tenant_id = ${key.tenant_id} AND c.document_id = ${String(args.documentId)} AND c.access && ${key.access}
         ORDER BY c.ord`;
       if (!rows.length) return { text: "Document not found.", structured: null, isError: true };
       const first = rows[0]!;

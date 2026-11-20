@@ -1,6 +1,6 @@
 # Contributing
 
-1. `corepack enable && pnpm install`
+1. `npm install -g pnpm@10` (or `corepack enable` on Node.js 24 and older), then `pnpm install`
 2. `./scripts/dev.sh` (or start Postgres yourself and run `pnpm -r build && pnpm seed && pnpm --filter @embed-assistant/server dev`)
 3. `pnpm -r typecheck && pnpm test` (and `pnpm test:db` with a Postgres + pgvector database)
 

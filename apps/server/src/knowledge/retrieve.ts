@@ -46,8 +46,8 @@ export async function retrieve(
     ? sql<Candidate[]>`
         SELECT c.id, c.document_id, d.title, d.url, c.heading, c.content
         FROM chunks c JOIN documents d ON d.id = c.document_id, to_tsquery('simple', ${tsq}) q
-        WHERE c.tenant_id = ${p.tenantId} AND c.source_id = ANY(${sql.array(p.sourceIds)})
-          AND c.access && ${sql.array(p.access)} AND c.tsv @@ q
+        WHERE c.tenant_id = ${p.tenantId} AND c.source_id = ANY(${p.sourceIds})
+          AND c.access && ${p.access} AND c.tsv @@ q
         ORDER BY ts_rank_cd(c.tsv, q, 1) DESC
         LIMIT ${PER_SOURCE_LIMIT}`
     : Promise.resolve([]);
@@ -62,8 +62,8 @@ export async function retrieve(
       return await sql<Candidate[]>`
         SELECT c.id, c.document_id, d.title, d.url, c.heading, c.content
         FROM chunks c JOIN documents d ON d.id = c.document_id
-        WHERE c.tenant_id = ${p.tenantId} AND c.source_id = ANY(${sql.array(p.sourceIds)})
-          AND c.access && ${sql.array(p.access)}
+        WHERE c.tenant_id = ${p.tenantId} AND c.source_id = ANY(${p.sourceIds})
+          AND c.access && ${p.access}
           AND c.embedding_dim = ${dim} AND c.embedding_model = ${embeddings.model}
         ORDER BY c.embedding::vector(${sql.unsafe(String(dim))}) <=> ${literal}::vector(${sql.unsafe(String(dim))})
         LIMIT ${PER_SOURCE_LIMIT}`;

@@ -141,7 +141,7 @@ Every run writes its events to Postgres and announces them with `NOTIFY`, so any
 
 ## Development
 
-Requirements: Node.js 22+, pnpm (via `corepack enable`), Docker (for Postgres).
+Requirements: Node.js 22.19+ (tested on 22 and 26), pnpm 10 (`npm install -g pnpm`, or `corepack enable` on Node.js 24 and older), Docker (for Postgres).
 
 ```bash
 ./scripts/dev.sh          # Postgres in Docker, build, seed, server with auto-reload on :8787

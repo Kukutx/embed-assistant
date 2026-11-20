@@ -86,21 +86,21 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
   async function validateAssistantRefs(tenantId: string, input: { modelAlias?: string; sourceIds?: string[]; actionIds?: string[]; mcpServerIds?: string[]; playbookIds?: string[] }) {
     if (input.playbookIds?.length) {
       const rows = await sql<{ id: string }[]>`
-        SELECT id FROM playbooks WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(input.playbookIds)})`;
+        SELECT id FROM playbooks WHERE tenant_id = ${tenantId} AND id = ANY(${input.playbookIds})`;
       const found = new Set(rows.map((r) => r.id));
       const missing = input.playbookIds.filter((id) => !found.has(id));
       if (missing.length) throw badRequest("unknown playbooks", { missing });
     }
     if (input.mcpServerIds?.length) {
       const rows = await sql<{ id: string }[]>`
-        SELECT id FROM mcp_servers WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(input.mcpServerIds)})`;
+        SELECT id FROM mcp_servers WHERE tenant_id = ${tenantId} AND id = ANY(${input.mcpServerIds})`;
       const found = new Set(rows.map((r) => r.id));
       const missing = input.mcpServerIds.filter((id) => !found.has(id));
       if (missing.length) throw badRequest("unknown MCP servers", { missing });
     }
     if (input.actionIds?.length) {
       const rows = await sql<{ id: string }[]>`
-        SELECT id FROM actions WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(input.actionIds)})`;
+        SELECT id FROM actions WHERE tenant_id = ${tenantId} AND id = ANY(${input.actionIds})`;
       const found = new Set(rows.map((r) => r.id));
       const missing = input.actionIds.filter((id) => !found.has(id));
       if (missing.length) throw badRequest("unknown actions", { missing });
@@ -110,7 +110,7 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
     }
     if (input.sourceIds?.length) {
       const rows = await sql<{ id: string }[]>`
-        SELECT id FROM knowledge_sources WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(input.sourceIds)})`;
+        SELECT id FROM knowledge_sources WHERE tenant_id = ${tenantId} AND id = ANY(${input.sourceIds})`;
       const found = new Set(rows.map((r) => r.id));
       const missing = input.sourceIds.filter((id) => !found.has(id));
       if (missing.length) throw badRequest("unknown knowledge sources", { missing });
@@ -179,7 +179,7 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
         throw badRequest(`version ${n} uses the model alias "${cfg.modelAlias}", which is no longer configured`, { aliases: s.models.describe().map((m) => m.alias) });
       }
       const existing = async (table: "knowledge_sources" | "actions" | "mcp_servers" | "playbooks", ids: string[]) =>
-        ids.length ? new Set((await sql<{ id: string }[]>`SELECT id FROM ${sql(table)} WHERE tenant_id = ${tid(c)} AND id = ANY(${sql.array(ids)})`).map((r) => r.id)) : new Set<string>();
+        ids.length ? new Set((await sql<{ id: string }[]>`SELECT id FROM ${sql(table)} WHERE tenant_id = ${tid(c)} AND id = ANY(${ids})`).map((r) => r.id)) : new Set<string>();
       const [srcs, acts, mcps, pbks] = await Promise.all([
         existing("knowledge_sources", cfg.sourceIds), existing("actions", cfg.actionIds), existing("mcp_servers", cfg.mcpServerIds), existing("playbooks", cfg.playbookIds),
       ]);

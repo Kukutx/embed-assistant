@@ -37,7 +37,7 @@ export const toPlaybook = (r: PlaybookRow): Playbook => ({
 
 export function listPlaybooks(sql: Sql, tenantId: string, ids?: string[]): Promise<PlaybookRow[]> {
   return ids
-    ? sql<PlaybookRow[]>`SELECT * FROM playbooks WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(ids)}) ORDER BY name`
+    ? sql<PlaybookRow[]>`SELECT * FROM playbooks WHERE tenant_id = ${tenantId} AND id = ANY(${ids}) ORDER BY name`
     : sql<PlaybookRow[]>`SELECT * FROM playbooks WHERE tenant_id = ${tenantId} ORDER BY name`;
 }
 

@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-command -v pnpm >/dev/null || corepack enable
+command -v pnpm >/dev/null || corepack enable 2>/dev/null || npm install -g pnpm@10
 if [ ! -f .env ]; then
   cp .env.example .env
   secret=$(head -c 48 /dev/urandom | base64 | tr -d '\n/+=' | cut -c1-48)

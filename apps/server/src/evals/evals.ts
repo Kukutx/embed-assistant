@@ -245,7 +245,7 @@ export async function addCases(sql: Sql, suite: SuiteRow, cases: EvalCaseInput[]
                                 expected_sources, expected_outcome, access, tags, history)
         VALUES (${newId("evc")}, ${suite.id}, ${suite.tenant_id}, ${c.question}, ${c.expectedAnswer},
                 ${tx.json(c.mustInclude)}, ${tx.json(c.mustNotInclude)}, ${tx.json(c.expectedSources)},
-                ${c.expectedOutcome}, ${tx.array(c.access)}, ${tx.json(c.tags)}, ${tx.json(c.history as never)})
+                ${c.expectedOutcome}, ${c.access}, ${tx.json(c.tags)}, ${tx.json(c.history as never)})
         RETURNING *`;
       out.push(row!);
     }
@@ -272,7 +272,7 @@ export async function updateCase(sql: Sql, suiteId: string, caseId: string, patc
     UPDATE eval_cases SET question = ${n.question}, expected_answer = ${n.expectedAnswer},
       must_include = ${sql.json(n.mustInclude)}, must_not_include = ${sql.json(n.mustNotInclude)},
       expected_sources = ${sql.json(n.expectedSources)}, expected_outcome = ${n.expectedOutcome},
-      access = ${sql.array(n.access)}, tags = ${sql.json(n.tags)}, history = ${sql.json(n.history as never)}, updated_at = now()
+      access = ${n.access}, tags = ${sql.json(n.tags)}, history = ${sql.json(n.history as never)}, updated_at = now()
     WHERE suite_id = ${suiteId} AND id = ${caseId} RETURNING *`;
   return row ?? null;
 }

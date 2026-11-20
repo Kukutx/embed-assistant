@@ -47,7 +47,7 @@ export const toAction = (r: ActionRow): Action => ({
 export async function listActions(sql: Tx, tenantId: string, ids?: string[]): Promise<ActionRow[]> {
   return sql<ActionRow[]>`
     SELECT * FROM actions WHERE tenant_id = ${tenantId}
-    ${ids ? sql`AND id = ANY(${sql.array(ids)})` : sql``}
+    ${ids ? sql`AND id = ANY(${ids})` : sql``}
     ORDER BY created_at`;
 }
 
@@ -62,7 +62,7 @@ export async function createAction(sql: Tx, key: Buffer, tenantId: string, a: Ac
     INSERT INTO actions (id, tenant_id, name, title, description, parameters, method, url, headers, header_names,
                          confirm, require_user, timeout_ms, enabled)
     VALUES (${newId("act")}, ${tenantId}, ${a.name}, ${a.title}, ${a.description}, ${sql.json(a.parameters as never)},
-            ${a.method}, ${a.url}, ${names.length ? encrypt(key, JSON.stringify(a.headers)) : null}, ${sql.array(names)},
+            ${a.method}, ${a.url}, ${names.length ? encrypt(key, JSON.stringify(a.headers)) : null}, ${names},
             ${a.confirm}, ${a.requireUser}, ${a.timeoutMs}, ${a.enabled})
     RETURNING *`;
   return rows[0]!;
@@ -77,7 +77,7 @@ export async function updateAction(sql: Tx, key: Buffer, tenantId: string, id: s
     UPDATE actions SET
       name = ${p.name ?? c.name}, title = ${p.title ?? c.title}, description = ${p.description ?? c.description},
       parameters = ${sql.json((p.parameters ?? c.parameters) as never)}, method = ${p.method ?? c.method}, url = ${p.url ?? c.url},
-      headers = ${headers}, header_names = ${sql.array(headerNames)}, confirm = ${p.confirm ?? c.confirm},
+      headers = ${headers}, header_names = ${headerNames}, confirm = ${p.confirm ?? c.confirm},
       require_user = ${p.requireUser ?? c.require_user}, timeout_ms = ${p.timeoutMs ?? c.timeout_ms},
       enabled = ${p.enabled ?? c.enabled}, updated_at = now()
     WHERE tenant_id = ${tenantId} AND id = ${id}

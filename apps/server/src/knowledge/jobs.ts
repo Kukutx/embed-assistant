@@ -70,7 +70,7 @@ export class JobWorker {
                       attempts = attempts + 1, updated_at = now()
       WHERE id = (
         SELECT id FROM jobs WHERE status = 'queued' AND run_after <= now()
-          AND type = ANY(${this.sql.array(types)})
+          AND type = ANY(${types})
         ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1
       )
       RETURNING id, tenant_id, type, payload, attempts`;

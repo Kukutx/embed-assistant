@@ -252,7 +252,7 @@ export async function insertAdminKey(
 ) {
   const id = newId("key");
   await sql`INSERT INTO admin_keys (id, tenant_id, name, key_hash, prefix, scopes, access)
-            VALUES (${id}, ${tenantId}, ${name}, ${hash}, ${prefix}, ${sql.array(scopes)}, ${sql.array(access)})`;
+            VALUES (${id}, ${tenantId}, ${name}, ${hash}, ${prefix}, ${scopes}, ${access})`;
   return id;
 }
 
@@ -322,10 +322,10 @@ export async function createAssistant(sql: Tx, tenantId: string, input: Assistan
                             follow_ups, query_rewrite, agentic_search, client_tools, redact_pii, guardrails, memory, playbook_ids, style)
     VALUES (${id}, ${tenantId}, ${input.name}, ${input.instructions}, ${input.modelAlias}, ${input.greeting},
             ${sql.json(input.suggestions)}, ${input.placeholder}, ${input.disclaimer},
-            ${sql.array(input.sourceIds)}, ${input.groundedOnly}, ${sql.array(input.actionIds)}, ${sql.array(input.mcpServerIds)},
+            ${input.sourceIds}, ${input.groundedOnly}, ${input.actionIds}, ${input.mcpServerIds},
             ${sql.json(input.handoff as never)}, ${input.followUps}, ${input.queryRewrite}, ${input.agenticSearch},
             ${input.clientTools}, ${input.redactPii}, ${sql.json(input.guardrails as never)}, ${input.memory},
-            ${sql.array(input.playbookIds)}, ${sql.json(input.style as never)})
+            ${input.playbookIds}, ${sql.json(input.style as never)})
     RETURNING *`;
   await recordVersion(sql, rows[0]!, meta);
   return rows[0]!;
@@ -368,11 +368,11 @@ export async function updateAssistant(
       name = ${next.name}, instructions = ${next.instructions}, model_alias = ${next.modelAlias},
       greeting = ${next.greeting}, suggestions = ${sql.json(next.suggestions)},
       placeholder = ${next.placeholder}, disclaimer = ${next.disclaimer},
-      source_ids = ${sql.array(next.sourceIds)}, grounded_only = ${next.groundedOnly},
-      action_ids = ${sql.array(next.actionIds)}, mcp_server_ids = ${sql.array(next.mcpServerIds)}, handoff = ${sql.json(next.handoff as never)},
+      source_ids = ${next.sourceIds}, grounded_only = ${next.groundedOnly},
+      action_ids = ${next.actionIds}, mcp_server_ids = ${next.mcpServerIds}, handoff = ${sql.json(next.handoff as never)},
       follow_ups = ${next.followUps}, query_rewrite = ${next.queryRewrite}, agentic_search = ${next.agenticSearch},
       client_tools = ${next.clientTools}, redact_pii = ${next.redactPii}, guardrails = ${sql.json(next.guardrails as never)}, memory = ${next.memory},
-      playbook_ids = ${sql.array(next.playbookIds)}, style = ${sql.json(next.style as never)},
+      playbook_ids = ${next.playbookIds}, style = ${sql.json(next.style as never)},
       version = version + 1, updated_at = now()
     WHERE tenant_id = ${tenantId} AND id = ${id}
     RETURNING *`;
@@ -416,7 +416,7 @@ export async function createWidget(
   const rows = await sql<WidgetRow[]>`
     INSERT INTO widgets (id, tenant_id, assistant_id, name, allowed_origins, theme, default_locale,
                          features, daily_token_budget, identity_secret)
-    VALUES (${id}, ${tenantId}, ${input.assistantId}, ${input.name}, ${sql.array(input.allowedOrigins)},
+    VALUES (${id}, ${tenantId}, ${input.assistantId}, ${input.name}, ${input.allowedOrigins},
             ${sql.json(input.theme)}, ${input.defaultLocale}, ${sql.json(input.features)},
             ${input.dailyTokenBudget}, ${encryptedSecret})
     RETURNING *`;
@@ -435,7 +435,7 @@ export async function updateWidget(
     UPDATE widgets SET
       assistant_id = ${patch.assistantId ?? c.assistant_id},
       name = ${patch.name ?? c.name},
-      allowed_origins = ${sql.array(patch.allowedOrigins ?? c.allowed_origins)},
+      allowed_origins = ${patch.allowedOrigins ?? c.allowed_origins},
       theme = ${sql.json(patch.theme ?? c.theme)},
       default_locale = ${patch.defaultLocale !== undefined ? patch.defaultLocale : c.default_locale},
       features = ${sql.json(patch.features ?? c.features)},
@@ -655,7 +655,7 @@ export async function createSource(
   const id = newId("src");
   const rows = await sql<SourceRow[]>`
     INSERT INTO knowledge_sources (id, tenant_id, name, type, url, access, max_pages, sync_interval_hours)
-    VALUES (${id}, ${tenantId}, ${input.name}, ${input.type}, ${input.url}, ${sql.array(input.access)}, ${input.maxPages},
+    VALUES (${id}, ${tenantId}, ${input.name}, ${input.type}, ${input.url}, ${input.access}, ${input.maxPages},
             ${input.type === "manual" ? null : (input.syncIntervalHours ?? null)})
     RETURNING *, 0 AS document_count`;
   return rows[0]!;
@@ -673,11 +673,11 @@ export async function updateSource(
     const access = p.access ?? c.access;
     await tx`
       UPDATE knowledge_sources SET name = ${p.name ?? c.name}, url = ${c.type === "manual" ? null : (p.url ?? c.url)},
-        access = ${tx.array(access)}, max_pages = ${p.maxPages ?? c.max_pages},
+        access = ${access}, max_pages = ${p.maxPages ?? c.max_pages},
         sync_interval_hours = ${c.type === "manual" ? null : p.syncIntervalHours !== undefined ? p.syncIntervalHours : c.sync_interval_hours},
         updated_at = now()
       WHERE tenant_id = ${tenantId} AND id = ${id}`;
-    if (p.access) await tx`UPDATE chunks SET access = ${tx.array(access)} WHERE tenant_id = ${tenantId} AND source_id = ${id}`;
+    if (p.access) await tx`UPDATE chunks SET access = ${access} WHERE tenant_id = ${tenantId} AND source_id = ${id}`;
     return getSource(tx, tenantId, id);
   });
 }
