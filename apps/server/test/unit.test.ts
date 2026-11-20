@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { isOriginAllowed } from "../src/auth/origin.js";
 import { verifyUserToken } from "../src/auth/userToken.js";
 import { chunkText } from "../src/knowledge/chunk.js";
-import { extractPage, parseSitemap } from "../src/knowledge/html.js";
+import { extractPage, pageTitle, parseSitemap } from "../src/knowledge/html.js";
 import { isPrivateAddress } from "../src/knowledge/safeFetch.js";
 import { queryTokens, searchTokens, stem, termMatches, toTsQuery } from "../src/knowledge/tokenize.js";
 import { decrypt, deriveKey, encrypt } from "../src/lib/crypto.js";
@@ -254,4 +254,21 @@ describe("assistant versions", () => {
     expect(changedFields(old, now)).toEqual([]);
     expect(changedFields(old, { ...now, memory: true, instructions: "Be brief." })).toEqual(["instructions", "memory"]);
   });
+});
+
+describe("page titles and query words", () => {
+  it("drops the site name from page titles", () => {
+    expect(pageTitle("Opening hours | Example City", "Opening hours", "")).toBe("Opening hours");
+    expect(pageTitle("Example City – Opening hours", "", "Example City")).toBe("Opening hours");
+    expect(pageTitle("Opening hours — Registry | Example City", "", "example city")).toBe("Opening hours — Registry");
+    expect(pageTitle("Guide: install the widget", "Something else", "")).toBe("Guide: install the widget");
+    expect(pageTitle("Plain title", "Plain", "Plain")).toBe("Plain title");
+  });
+
+  it("ignores question words and modal verbs in queries", () => {
+    expect(queryTokens("Come posso pagare la TARI?")).toEqual(["pagare", "tari"]);
+    expect(queryTokens("Wann kann ich den Ausweis abholen?")).toEqual(["auswei", "abholen"]);
+    expect(queryTokens("¿Dónde puedo pagar la factura?")).toEqual(["pagar", "factura"]);
+  });
+
 });

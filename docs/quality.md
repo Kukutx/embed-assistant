@@ -63,7 +63,7 @@ Each case can check any combination of:
 | --- | --- |
 | `mustInclude` / `mustNotInclude` | Phrases the answer must (not) contain, case-insensitive. |
 | `expectedSources` | Each entry must match a cited source by URL (exact, ignoring `#fragment`/`?query`), document id, or part of the title. |
-| `expectedOutcome` | `answer`, `refuse` (a guardrail or the model declined) or `handoff` (the model asked for a person). |
+| `expectedOutcome` | `answer`, `refuse` (a guardrail blocked the question, or the model refused it on safety grounds) or `handoff` (the model asked for a person). A polite "I can only help with questions about our services" is an *answer*. To require it, check its wording with `mustInclude`, or add the subject as a blocked topic so a guardrail refuses it every time. |
 | `expectedAnswer` | A model judge scores the answer against this reference from 1 to 5 (correctness first, then completeness); 4 or 5 passes. Uses the `judge` alias if you define one, else `fast`, else the assistant's alias. Without a language model (or with `judge: false`) the share of the reference's key terms found in the answer is used instead (60% passes). |
 | `access` | Access groups the simulated visitor has, for restricted knowledge. |
 | `history` | Earlier turns, oldest first (`[{"role": "user", "content": …}, {"role": "assistant", "content": …}]`, up to 20), so the case tests a follow-up question or a step in the middle of a playbook. |

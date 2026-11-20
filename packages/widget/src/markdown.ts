@@ -242,3 +242,17 @@ export function renderMarkdown(src: string, opts: RenderOptions = {}): DocumentF
 export function plainText(md: string): string {
   return md.replace(/\s?\[(\d{1,2})\](?!\()/g, "").trim();
 }
+
+/**
+ * Display numbers for citation markers: 1, 2, 3... in order of first appearance, so an answer
+ * that cites passages 4 and 6 shows [1] and [2]. Numbers stay stable while an answer streams.
+ * With `known`, markers for other numbers are left out of the numbering.
+ */
+export function citationNumbers(md: string, known?: Set<number>): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const m of md.matchAll(/\[(\d{1,2})\](?!\()/g)) {
+    const n = Number(m[1]);
+    if (!out.has(n) && (!known || known.has(n))) out.set(n, out.size + 1);
+  }
+  return out;
+}

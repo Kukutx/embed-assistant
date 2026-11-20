@@ -97,6 +97,9 @@ export async function upsertDocument(
 }
 
 /** Crawl a url, sitemap (or llms.txt) or website source. Documents not seen in a successful crawl are removed. */
+/** A linked page that is gone (404, 410) or private (401, 403) is not part of the public site. */
+const SKIPPABLE_STATUS = new Set([401, 403, 404, 410]);
+
 export async function ingestSource(deps: IngestDeps, tenantId: string, sourceId: string): Promise<void> {
   const source = await getSource(deps.sql, tenantId, sourceId);
   if (!source) return;
@@ -110,11 +113,19 @@ export async function ingestSource(deps: IngestDeps, tenantId: string, sourceId:
     const seen = new Set<string>();
     let failures = 0;
     let attempted = 0;
+    /** Links found by a website crawl that are gone or need a sign-in: skipped, not failures. */
+    let skipped = 0;
+    const startUrl = source.type === "website" ? normalizeUrl(source.url!) : null;
     /** Fetch, extract and store one page; returns its links (for website crawls). */
     const visit = async (url: string): Promise<string[]> => {
       attempted++;
       try {
         const res = await safeFetch(url, { ...fetchOpts, maxBytes: 20 * 1024 * 1024, accept: CRAWL_ACCEPT });
+        if (startUrl && url !== startUrl && SKIPPABLE_STATUS.has(res.status)) {
+          skipped++;
+          deps.log.info({ url, status: res.status }, "ingest: linked page skipped");
+          return [];
+        }
         if (res.status >= 400) throw new Error(`HTTP ${res.status}`);
         const page = await extractDocument(res.bytes, { contentType: res.contentType, name: res.url, baseUrl: res.url }).catch((err) => {
           if (err instanceof UnsupportedDocumentError) return null;
@@ -167,11 +178,12 @@ export async function ingestSource(deps: IngestDeps, tenantId: string, sourceId:
 
     if (seen.size === 0) throw new Error(`no pages could be ingested (${failures} failed)`);
     // Only prune when most pages succeeded, so a flaky crawl doesn't wipe the index.
-    if (failures <= attempted * 0.2) {
+    // Many sign-in walls at once look like a blocked crawler rather than private pages: keep the index then.
+    if (failures <= attempted * 0.2 && skipped <= attempted * 0.5) {
       await deps.sql`DELETE FROM documents WHERE source_id = ${sourceId} AND NOT (external_id = ANY(${[...seen]}))`;
     }
     await setSourceStatus(deps.sql, tenantId, sourceId, "succeeded", failures ? `${failures} page(s) failed` : null);
-    await emitWebhook(deps.sql, tenantId, "source.synced", { sourceId, status: "succeeded", pages: seen.size, failures }).catch(() => {});
+    await emitWebhook(deps.sql, tenantId, "source.synced", { sourceId, status: "succeeded", pages: seen.size, failures, skipped }).catch(() => {});
   } catch (err) {
     await setSourceStatus(deps.sql, tenantId, sourceId, "failed", (err as Error).message.slice(0, 500));
     await emitWebhook(deps.sql, tenantId, "source.synced", { sourceId, status: "failed", error: (err as Error).message.slice(0, 500) }).catch(() => {});

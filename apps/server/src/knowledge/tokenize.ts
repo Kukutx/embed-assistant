@@ -13,10 +13,19 @@ const STOP = new Set(
     "a an and are as at be but by can could did do does for from had has have how i if in into is it its me my " +
     "no not of on or our please should so that the their them then there these they this to us was we were what " +
     "when where which who why will with would you your " +
+    // Question words, modal verbs and articles: they carry no topic, and as query terms they make a
+    // focused question ("Come posso pagare la TARI?") look like a weak match.
     "il lo la le gli i un una uno di da del della dei delle e è che per con su come cosa sono non " +
-    "der die das und ist ein eine zu den mit wie was " +
-    "el los las de y en que un una por para como es " +
-    "le les des du et est une pour dans comment"
+    "al allo alla ai agli alle dal dalla dai nel nella nei nelle sul sulla ci mi ti si vi ne ho hai ha " +
+    "posso puoi può possiamo potete possono devo devi deve dobbiamo vorrei voglio quale quali quando dove chi " +
+    "quanto quanta quanti quante perché qual sei siamo c l " +
+    "der die das und ist ein eine zu den mit wie was ich kann kannst können möchte welche welcher welches " +
+    "wann wo wer im am von für " +
+    "el los las de y en que un una por para como es del al lo mi se puedo puede puedes podemos quiero " +
+    "cuál cuáles cuándo dónde quién qué hay " +
+    "le les des du et est une pour dans comment je nous vous puis peux peut pouvons veux voudrais " +
+    "quel quelle quels quelles quand où qui au aux " +
+    "do da dos das no na nos nas em um uma os as ao pode quero qual quais onde quem"
   ).split(" "),
 );
 const CJK_STOP = new Set(["的", "了", "吗", "呢", "是", "我", "你", "怎么", "如何", "什么", "可以", "一个", "请问"]);

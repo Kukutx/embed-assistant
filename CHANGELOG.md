@@ -2,8 +2,15 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
-## Unreleased
+## 1.0.16
 
+Tested on a real public-sector site.
+
+- **Better matches for questions in Italian, Spanish, French, German and Portuguese**: question words, modal verbs and articles ("posso", "dove", "kann", "puedo", "peux") no longer count as search terms, so "Come posso pagare la TARI?" finds the TARI page without embeddings.
+- **Clean page titles**: website, sitemap and page sources drop the site name that most sites add to `<title>` ("Opening hours | Example City" becomes "Opening hours"), using the page's h1 or `og:site_name`. Sources and citations read better; run *Sync* to update existing documents.
+- **Website crawls skip broken and private links**: linked pages that answer 404, 410, 401 or 403 are skipped instead of reported as failures (the start page must still load). If more than half of the pages need a sign-in, existing documents are kept, as this usually means the crawler was blocked. `source.synced` reports them as `skipped`.
+- **Citations numbered 1, 2, 3 in the widget**: an answer that cites passages 4 and 6 now shows [1] and [2], with the source list in the same order.
+- **Plainer answers**: the model formats only text to type or copy as `code`, not dates, times or names.
 - **Deployment scripts keep the admin key out of logs**: `install.sh` prints the first admin key only on the run that creates it (later runs point to `first-run.txt`), and the Oracle first-boot log is readable by root only.
 - **TypeScript types for the widget API**: the server publishes `/widget/embed-assistant.d.ts`, generated from the widget's own types at build time and compiled in CI, so sites written in TypeScript get `window.EmbedAssistant` and `window.EmbedAssistantConfig` typed. See [examples/spa](examples/spa/README.md).
 

@@ -5,7 +5,7 @@
 import type { Citation, ClientToolDef, ConversationEvent, Message, PageContext, PublicWidgetConfig, RunEvent } from "@embed-assistant/protocol";
 import { ApiError, Client } from "./client.js";
 import { stringsFor, type Strings } from "./i18n.js";
-import { plainText, renderMarkdown, safeUrl } from "./markdown.js";
+import { citationNumbers, plainText, renderMarkdown, safeUrl } from "./markdown.js";
 import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MEDIA_TYPES, ATTACHMENTS_PER_MESSAGE, CHAT_ICON, CLOSE_ICON, contrastText, DEFAULT_ACCENT, type AppHandle, type MountContext, type PageContextInput, type UserTokenProvider } from "./shared.js";
 import { STYLES } from "./styles.js";
 
@@ -810,11 +810,12 @@ class App {
     if (vm.confirm) wrap.appendChild(this.confirmCard(vm));
     const busyTool = vm.tools.some((x) => x.state === "running" || x.state === "waiting");
     const content = h("div", { class: `ea-content${streaming && vm.content && !vm.phase && !busyTool ? " ea-caret" : ""}` });
+    const byIndex = new Map(vm.citations.map((c) => [c.index, c]));
+    const shown = citationNumbers(vm.content, streaming ? undefined : new Set(byIndex.keys()));
     if (vm.content) {
-      const byIndex = new Map(vm.citations.map((c) => [c.index, c]));
       content.appendChild(
         renderMarkdown(vm.content, {
-          citation: (n) => this.citationChip(n, byIndex.get(n), wrap),
+          citation: (n) => this.citationChip(shown.get(n) ?? n, byIndex.get(n), wrap),
         }),
       );
     }
@@ -843,13 +844,15 @@ class App {
 
     if (!streaming && vm.citations.length && this.cfg?.features.sources !== false) {
       const list = h("div", { class: "ea-sources" }, h("div", { class: "ea-sources-label", text: t.sources }));
-      for (const c of vm.citations) {
-        const inner = [h("b", { text: String(c.index) }), h("span", { text: c.title })];
+      const ordered = [...vm.citations].sort((a, b) => (shown.get(a.index) ?? 99 + a.index) - (shown.get(b.index) ?? 99 + b.index));
+      for (const c of ordered) {
+        const num = shown.get(c.index) ?? c.index;
+        const inner = [h("b", { text: String(num) }), h("span", { text: c.title })];
         const href = c.url ? safeUrl(c.url) : null;
         const item = href
           ? h("a", { class: "ea-source", href, target: "_blank", rel: "noopener noreferrer", title: c.snippet }, ...inner)
           : h("div", { class: "ea-source", title: c.snippet }, ...inner);
-        item.dataset.index = String(c.index);
+        item.dataset.index = String(num);
         list.appendChild(item);
       }
       wrap.appendChild(list);

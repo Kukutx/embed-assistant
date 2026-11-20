@@ -65,9 +65,9 @@ export function buildSystemPrompt(
 
 const escapeAttr = (s: string) => s.replace(/[<>"&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "&": "&amp;" })[c]!);
 const LENGTH_RULES: Record<AnswerStyle["length"], string> = {
-  short: "Keep answers short: two to four sentences, or a short list of steps, unless the user asks for more. Use Markdown and `code` for literal values.",
-  medium: "Be concise and helpful. Use Markdown: short paragraphs, lists for steps, `code` for literal values.",
-  detailed: "Give thorough, complete answers: explain each step, mention prerequisites and pitfalls, and add an example when it helps. Use Markdown with headings or lists for structure and `code` for literal values.",
+  short: "Keep answers short: two to four sentences, or a short list of steps, unless the user asks for more. Use Markdown, and `code` only for text the user types or copies exactly (commands, codes, settings), not for dates, times or names.",
+  medium: "Be concise and helpful. Use Markdown: short paragraphs, lists for steps, `code` only for text the user types or copies exactly (commands, codes, settings), not for dates, times or names.",
+  detailed: "Give thorough, complete answers: explain each step, mention prerequisites and pitfalls, and add an example when it helps. Use Markdown with headings or lists for structure, and `code` only for text the user types or copies exactly (commands, codes, settings), not for dates, times or names.",
 };
 const TONE_RULES: Record<Exclude<AnswerStyle["tone"], "neutral">, string> = {
   friendly: "Use a warm, friendly, encouraging tone.",

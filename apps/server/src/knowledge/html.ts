@@ -15,10 +15,12 @@ const DROP = "script,style,noscript,svg,canvas,iframe,form,nav,footer,header,asi
 /** Readable text (markdown-ish, keeps headings and lists) from an HTML page. */
 export function extractPage(html: string, baseUrl: string): ExtractedPage {
   const root = parse(html, { blockTextElements: { script: false, style: false, noscript: false, pre: true } });
+  const meta = (sel: string) => decode(root.querySelector(sel)?.getAttribute("content")?.trim() ?? "");
+  const h1 = decode(root.querySelector("h1")?.text.replace(/\s+/g, " ").trim() ?? "");
   const title =
-    root.querySelector("meta[property='og:title']")?.getAttribute("content")?.trim() ||
-    root.querySelector("title")?.text.trim() ||
-    root.querySelector("h1")?.text.trim() ||
+    meta("meta[property='og:title']") ||
+    pageTitle(decode(root.querySelector("title")?.text.replace(/\s+/g, " ").trim() ?? ""), h1, meta("meta[property='og:site_name']") || meta("meta[name='application-name']")) ||
+    h1 ||
     baseUrl;
   const canonicalHref = root.querySelector("link[rel='canonical']")?.getAttribute("href");
   const robots = root
@@ -43,13 +45,40 @@ export function extractPage(html: string, baseUrl: string): ExtractedPage {
     .replace(/[ \t]{2,}/g, " ")
     .trim();
   return {
-    title: decode(title).slice(0, 500),
+    title: title.slice(0, 500),
     text,
     canonical: canonicalHref ? resolve(canonicalHref, baseUrl) : null,
     links,
     noindex: /\b(noindex|none)\b/.test(robots),
     nofollow: /\b(nofollow|none)\b/.test(robots),
   };
+}
+
+const TITLE_SEPARATOR = /\s+[|\u2013\u2014\u00b7:•»-]{1,2}\s+/g;
+
+/**
+ * The page's own name from its `<title>`, without the site name that most sites add
+ * ("Opening hours | Example City" becomes "Opening hours"): the part that matches the
+ * page's h1, else the title without a leading or trailing site name.
+ */
+export function pageTitle(title: string, h1: string, siteName: string): string {
+  const seps = [...title.matchAll(TITLE_SEPARATOR)];
+  if (!seps.length) return title;
+  const same = (a: string, b: string) => a.trim().localeCompare(b.trim(), undefined, { sensitivity: "base" }) === 0;
+  const bounds = [0, ...seps.flatMap((m) => [m.index!, m.index! + m[0].length]), title.length];
+  const parts: string[] = [];
+  for (let i = 0; i < bounds.length; i += 2) parts.push(title.slice(bounds[i], bounds[i + 1]));
+  if (h1) {
+    const match = parts.find((x) => same(x, h1));
+    if (match) return match.trim();
+  }
+  if (siteName) {
+    const first = seps[0]!;
+    const last = seps.at(-1)!;
+    if (same(parts.at(-1)!, siteName)) return title.slice(0, last.index).trim();
+    if (same(parts[0]!, siteName)) return title.slice(first.index! + first[0].length).trim();
+  }
+  return title;
 }
 
 function walk(node: Node, out: string[]): void {

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { plainText, renderMarkdown, safeUrl } from "../src/markdown.js";
+import { citationNumbers, plainText, renderMarkdown, safeUrl } from "../src/markdown.js";
 
 const html = (md: string, citation?: (n: number) => Node | null) => {
   const div = document.createElement("div");
@@ -62,5 +62,12 @@ describe("renderMarkdown", () => {
 
   it("strips citation markers for copy", () => {
     expect(plainText("Hello [1] world [2][3].")).toBe("Hello world.");
+  });
+});
+
+describe("citationNumbers", () => {
+  it("numbers cited passages in order of first appearance", () => {
+    expect([...citationNumbers("Closed [6]. Buses [6][4]. Link [x](/a) and [9].", new Set([4, 6]))]).toEqual([[6, 1], [4, 2]]);
+    expect([...citationNumbers("A [3] b [3] c [1]")]).toEqual([[3, 1], [1, 2]]);
   });
 });

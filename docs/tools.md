@@ -186,7 +186,7 @@ Webhooks follow the [Standard Webhooks](https://www.standardwebhooks.com/) speci
 | `feedback.submitted` | `{ conversationId, messageId, rating, comment }` |
 | `handoff.requested` | `{ conversation, subject, trigger, reason, summary, pageContext, transcript, requestedAt }` |
 | `message.received` | `{ conversationId, message, assignee, subject }`: the visitor wrote while a person handles the conversation |
-| `source.synced` | `{ sourceId, status, pages?, failures?, error? }` |
+| `source.synced` | `{ sourceId, status, pages?, failures?, skipped?, error? }` (`skipped`: linked pages of a website crawl that are gone or need a sign-in) |
 | `audit.recorded` | An [audit log](api.md#audit-log) entry: `{ id, at, actor, action, target, changes, … }` |
 
 Body: `{ "type": "<event>", "timestamp": "<ISO 8601>", "data": { … } }`. The payload is fixed when the event happens, so retries send identical bytes.

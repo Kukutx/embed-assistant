@@ -117,10 +117,12 @@ describe.skipIf(!DB)("knowledge sources (postgres)", () => {
         return;
       }
       const page = (title: string, body: string, head = "") =>
-        send("text/html", `<!doctype html><html><head><title>${title}</title>${head}</head><body><nav><a href="/help/">Help</a> <a href="/blog/">Blog</a></nav><main><h1>${title}</h1>${body}</main></body></html>`);
+        send("text/html", `<!doctype html><html><head><title>${title} | Example Help</title>${head}</head><body><nav><a href="/help/">Help</a> <a href="/blog/">Blog</a></nav><main><h1>${title}</h1>${body}</main></body></html>`);
       if (rq.url === "/robots.txt") return send("text/plain", "User-agent: *\nDisallow: /help/private\n");
       if (rq.url === "/help/") return page("Help center", `<p>Start here for questions about orders.</p><a href="faq?utm_source=nav">FAQ</a> <a href="/help/hidden">Hidden</a> <a href="/help/private">Private</a> <a href="/help/nofollow-target" rel="nofollow">x</a> <a href="/help/logo.png">logo</a>`);
-      if (rq.url === "/help/faq") return page("FAQ", `<p>Orders ship within two working days from our warehouse.</p><a href="/help/deep#a">Deep</a>`);
+      if (rq.url === "/help/faq") return page("FAQ", `<p>Orders ship within two working days from our warehouse.</p><a href="/help/deep#a">Deep</a> <a href="/help/gone">Gone</a> <a href="/help/members">Members</a>`);
+      if (rq.url === "/help/gone") return void rs.writeHead(404).end("not found");
+      if (rq.url === "/help/members") return void rs.writeHead(403).end("sign in");
       if (rq.url === "/help/deep") return page("Deep page", "<p>Tracking numbers arrive by email once the parcel leaves.</p>");
       if (rq.url === "/help/hidden") return page("Hidden", "<p>This page asks search engines not to index it at all.</p><a href=\"/help/after-hidden\">next</a>", '<meta name="robots" content="noindex">');
       if (rq.url === "/help/after-hidden") return page("After hidden", "<p>Reached through a noindex page, which still passes on its links.</p>");
