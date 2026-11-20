@@ -136,7 +136,7 @@ export interface SourceRow {
   id: string;
   tenant_id: string;
   name: string;
-  type: "url" | "sitemap" | "manual";
+  type: "url" | "sitemap" | "website" | "manual";
   url: string | null;
   access: string[];
   max_pages: number;

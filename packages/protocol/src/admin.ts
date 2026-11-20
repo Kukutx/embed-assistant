@@ -266,7 +266,12 @@ export const WidgetPatch = z.object(WidgetFields).partial();
 /** Returned once on widget creation / secret rotation. Store it in the HOST backend only. */
 export const WidgetSecret = z.object({ widgetId: Id, identitySecret: z.string() });
 
-export const SourceType = z.enum(["url", "sitemap", "manual"]);
+/**
+ * `url`: one page. `sitemap`: every page of a sitemap.xml (or an llms.txt index).
+ * `website`: start from a page and follow links on the same site, under the same folder.
+ * `manual`: documents uploaded or pushed through the API.
+ */
+export const SourceType = z.enum(["url", "sitemap", "website", "manual"]);
 export const IngestStatus = z.enum(["idle", "queued", "running", "succeeded", "failed"]);
 
 export const KnowledgeSource = z.object({
@@ -278,7 +283,7 @@ export const KnowledgeSource = z.object({
   status: IngestStatus,
   lastError: z.string().nullable(),
   documentCount: z.number().int(),
-  /** Pages fetched at most per crawl (sitemap and llms.txt sources). */
+  /** Pages fetched at most per crawl (sitemap, llms.txt and website sources). */
   maxPages: z.number().int(),
   /** Re-crawl automatically every N hours; null = only on demand. */
   syncIntervalHours: z.number().int().nullable(),
@@ -294,13 +299,13 @@ export const KnowledgeSourceInput = z
     url: HttpUrl.nullable().default(null),
     /** Who may see answers from this source: `public`, `users`, or a custom group. */
     access: z.array(AccessTag).min(1).max(20).default(["public"]),
-    /** sitemap and llms.txt: maximum pages to fetch. */
+    /** sitemap, llms.txt and website: maximum pages to fetch. */
     maxPages: z.number().int().min(1).max(5000).default(200),
-    /** url, sitemap and llms.txt sources: re-crawl every N hours (null = only on demand). */
+    /** Crawled sources: re-crawl every N hours (null = only on demand). */
     syncIntervalHours: z.number().int().min(1).max(720).nullable().default(null),
   })
   .refine((v) => v.type === "manual" || v.url !== null, {
-    message: "url is required for url and sitemap sources",
+    message: "url is required for url, sitemap and website sources",
     path: ["url"],
   });
 export type KnowledgeSourceInput = z.infer<typeof KnowledgeSourceInput>;

@@ -99,7 +99,7 @@ Anonymous visitors only see knowledge tagged `public`. To recognise a user, your
 
 ## Knowledge
 
-- **Website, sitemap or [llms.txt](https://llmstxt.org)**: crawled in the background with an SSRF-safe fetcher (private networks are blocked), on demand or on a schedule (every 6 hours, daily, weekly…). HTML, Markdown, text and PDF pages are read; pages that disappear are removed.
+- **Website, sitemap or [llms.txt](https://llmstxt.org)**: crawled in the background with an SSRF-safe fetcher (private networks are blocked), on demand or on a schedule (every 6 hours, daily, weekly…). A website source follows links from a start page on the same site and under its folder, and respects `robots.txt` and `noindex`/`nofollow`. HTML, Markdown, text, PDF and Word pages are read; pages that disappear are removed.
 - **Files**: upload PDF, Word (.docx), Markdown, HTML or text files in the console or with `POST /v1/admin/sources/{id}/files` (multipart). Uploading the same file name again replaces it.
 - **Push**: `PUT /v1/admin/sources/{id}/documents` with `{ title, content, url?, externalId? }` from a CMS, ticketing system, docs build or script. Unchanged content is a no-op.
 - **Access tags** on each source decide who can get answers from it. Changing them re-tags everything already stored.

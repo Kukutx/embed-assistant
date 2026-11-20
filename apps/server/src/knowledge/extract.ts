@@ -10,6 +10,10 @@ export interface ExtractedDocument {
   text: string;
   /** Canonical URL declared by an HTML page. */
   canonical?: string | null;
+  /** HTML only: links to follow when crawling a website (empty when the page says nofollow). */
+  links?: string[];
+  /** HTML only: the page asks not to be indexed. */
+  noindex?: boolean;
 }
 
 export type DocumentKind = "html" | "markdown" | "text" | "pdf" | "docx";
@@ -57,7 +61,7 @@ export async function extractDocument(bytes: Buffer, o: { contentType: string; n
   switch (kind) {
     case "html": {
       const page = extractPage(bytes.toString("utf8"), o.baseUrl ?? "https://invalid.local/");
-      return { title: page.title === (o.baseUrl ?? "https://invalid.local/") ? titleOf(page.text, o.name) : page.title, text: page.text, canonical: o.baseUrl ? page.canonical : null };
+      return { title: page.title === (o.baseUrl ?? "https://invalid.local/") ? titleOf(page.text, o.name) : page.title, text: page.text, canonical: o.baseUrl ? page.canonical : null, links: page.nofollow ? [] : page.links, noindex: page.noindex };
     }
     case "markdown": {
       const { title, body } = frontMatter(bytes.toString("utf8").replace(/^﻿/, ""));

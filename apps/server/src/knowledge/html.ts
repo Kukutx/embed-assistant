@@ -5,6 +5,9 @@ export interface ExtractedPage {
   text: string;
   canonical: string | null;
   links: string[];
+  /** `<meta name="robots">` asks crawlers not to index the page / not to follow its links. */
+  noindex: boolean;
+  nofollow: boolean;
 }
 
 const DROP = "script,style,noscript,svg,canvas,iframe,form,nav,footer,header,aside,template,[aria-hidden=true],[hidden]";
@@ -18,8 +21,14 @@ export function extractPage(html: string, baseUrl: string): ExtractedPage {
     root.querySelector("h1")?.text.trim() ||
     baseUrl;
   const canonicalHref = root.querySelector("link[rel='canonical']")?.getAttribute("href");
+  const robots = root
+    .querySelectorAll("meta[name]")
+    .filter((m) => /^(robots|embed-assistant)$/i.test(m.getAttribute("name") ?? ""))
+    .map((m) => (m.getAttribute("content") ?? "").toLowerCase())
+    .join(",");
   const links = root
     .querySelectorAll("a[href]")
+    .filter((a) => !/\bnofollow\b/i.test(a.getAttribute("rel") ?? ""))
     .map((a) => resolve(a.getAttribute("href")!, baseUrl))
     .filter((u): u is string => u !== null);
 
@@ -33,7 +42,14 @@ export function extractPage(html: string, baseUrl: string): ExtractedPage {
     .replace(/\n{3,}/g, "\n\n")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
-  return { title: decode(title).slice(0, 500), text, canonical: canonicalHref ? resolve(canonicalHref, baseUrl) : null, links };
+  return {
+    title: decode(title).slice(0, 500),
+    text,
+    canonical: canonicalHref ? resolve(canonicalHref, baseUrl) : null,
+    links,
+    noindex: /\b(noindex|none)\b/.test(robots),
+    nofollow: /\b(nofollow|none)\b/.test(robots),
+  };
 }
 
 function walk(node: Node, out: string[]): void {

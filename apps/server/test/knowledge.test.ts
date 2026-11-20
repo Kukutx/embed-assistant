@@ -13,6 +13,7 @@ import { migrate } from "../src/db/migrate.js";
 import { createTenant, insertAdminKey } from "../src/db/store.js";
 import { createApp } from "../src/http/app.js";
 import type { Services } from "../src/http/env.js";
+import { crawlScope, inScope, normalizeUrl, parseRobots, robotsAllows } from "../src/knowledge/crawl.js";
 import { detectKind, extractDocument, parseLlmsTxt } from "../src/knowledge/extract.js";
 import { ingestSource, scheduleDueSyncs } from "../src/knowledge/ingest.js";
 import { retrieve } from "../src/knowledge/retrieve.js";
@@ -51,6 +52,26 @@ describe("document extraction", () => {
     expect(parseRerank({ data: [{ index: 2, relevance_score: 0.5 }, { index: 7, relevance_score: 1 }] }, 3)).toEqual([2]);
     expect(parseRerank([{ index: 0, score: 0.1 }, { index: 0, score: 0.3 }, { index: 1, score: 0.2 }], 2)).toEqual([1, 0]);
     expect(parseRerank({ nope: true }, 2)).toEqual([]);
+  });
+
+  it("reads robots.txt and keeps crawls in scope", () => {
+    const r = parseRobots("User-agent: *\nDisallow: /admin\nDisallow: /*?q=\nAllow: /admin/help$\n\nUser-agent: other\nDisallow: /\nSitemap: https://x.example/s.xml\n");
+    expect(r.sitemaps).toEqual(["https://x.example/s.xml"]);
+    expect(robotsAllows(r, "/admin/users")).toBe(false);
+    expect(robotsAllows(r, "/admin/help")).toBe(true);
+    expect(robotsAllows(r, "/admin/help/x")).toBe(false);
+    expect(robotsAllows(r, "/search?q=x")).toBe(false);
+    expect(robotsAllows(r, "/docs")).toBe(true);
+    // A group for our own agent replaces the * group.
+    expect(robotsAllows(parseRobots("User-agent: *\nDisallow: /\nUser-agent: embed-assistant\nDisallow: /tmp"), "/docs")).toBe(true);
+    expect(normalizeUrl("/a/b?utm_source=x&id=2#top", "https://x.example/c")).toBe("https://x.example/a/b?id=2");
+    expect(normalizeUrl("mailto:a@b.c")).toBeNull();
+    const scope = crawlScope("https://x.example/help/start");
+    expect(scope).toEqual({ origin: "https://x.example", prefix: "/help/" });
+    expect(inScope("https://x.example/help/faq", scope)).toBe(true);
+    expect(inScope("https://x.example/blog", scope)).toBe(false);
+    expect(inScope("https://y.example/help/faq", scope)).toBe(false);
+    expect(inScope("https://x.example/help/logo.png", scope)).toBe(false);
   });
 
   it("parses llms.txt links", () => {
@@ -95,6 +116,15 @@ describe.skipIf(!DB)("knowledge sources (postgres)", () => {
         });
         return;
       }
+      const page = (title: string, body: string, head = "") =>
+        send("text/html", `<!doctype html><html><head><title>${title}</title>${head}</head><body><nav><a href="/help/">Help</a> <a href="/blog/">Blog</a></nav><main><h1>${title}</h1>${body}</main></body></html>`);
+      if (rq.url === "/robots.txt") return send("text/plain", "User-agent: *\nDisallow: /help/private\n");
+      if (rq.url === "/help/") return page("Help center", `<p>Start here for questions about orders.</p><a href="faq?utm_source=nav">FAQ</a> <a href="/help/hidden">Hidden</a> <a href="/help/private">Private</a> <a href="/help/nofollow-target" rel="nofollow">x</a> <a href="/help/logo.png">logo</a>`);
+      if (rq.url === "/help/faq") return page("FAQ", `<p>Orders ship within two working days from our warehouse.</p><a href="/help/deep#a">Deep</a>`);
+      if (rq.url === "/help/deep") return page("Deep page", "<p>Tracking numbers arrive by email once the parcel leaves.</p>");
+      if (rq.url === "/help/hidden") return page("Hidden", "<p>This page asks search engines not to index it at all.</p><a href=\"/help/after-hidden\">next</a>", '<meta name="robots" content="noindex">');
+      if (rq.url === "/help/after-hidden") return page("After hidden", "<p>Reached through a noindex page, which still passes on its links.</p>");
+      if (rq.url?.startsWith("/help/") || rq.url?.startsWith("/blog/")) return page("Should not be crawled", "<p>This page is out of scope or disallowed for crawlers.</p>");
       if (rq.url === "/setup.md") return send("text/markdown", "# Setup guide\n\nInstall the agent with one command and restart.");
       if (rq.url === "/returns.pdf") return send("application/pdf", fixture("returns.pdf"));
       rs.writeHead(404).end();
@@ -194,6 +224,18 @@ describe.skipIf(!DB)("knowledge sources (postgres)", () => {
     expect(after).toMatchObject({ status: "succeeded", documentCount: 2, lastError: "1 page(s) failed" });
     const titles = (await admin("GET", `/sources/${src.id}/documents`)).map((d: { title: string }) => d.title).sort();
     expect(titles).toEqual(["Returns guide", "Setup guide"]);
+  });
+
+  it("crawls a website by following links in scope", async () => {
+    const src = await admin("POST", "/sources", { name: "Help site", type: "website", url: `${base}/help/` }, 201);
+    expect(src.type).toBe("website");
+    await ingestSource(s.ingest, tenantId, src.id);
+    const after = await admin("GET", `/sources/${src.id}`);
+    expect(after).toMatchObject({ status: "succeeded", lastError: null });
+    const titles = (await admin("GET", `/sources/${src.id}/documents`)).map((d: { title: string }) => d.title).sort();
+    // Not: /blog (out of scope), /help/private (robots.txt), the nofollow link, the image, the noindex page itself.
+    expect(titles).toEqual(["After hidden", "Deep page", "FAQ", "Help center"]);
+    await admin("POST", "/sources", { name: "No url", type: "website" }, 400);
   });
 
   it("schedules due re-syncs", async () => {

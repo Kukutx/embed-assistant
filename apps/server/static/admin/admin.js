@@ -854,8 +854,8 @@ async function searchTester() {
 function sourceForm(done) {
   const f = {
     name: h("input", { required: true, placeholder: "Help center" }),
-    type: h("select", {}, h("option", { value: "sitemap", text: "Sitemap (many pages)" }), h("option", { value: "url", text: "Single page" }), h("option", { value: "manual", text: "Manual / API push" })),
-    url: h("input", { type: "url", placeholder: "https://example.com/sitemap.xml" }),
+    type: h("select", {}, h("option", { value: "website", text: "Website (follow links)" }), h("option", { value: "sitemap", text: "Sitemap or llms.txt" }), h("option", { value: "url", text: "Single page" }), h("option", { value: "manual", text: "Manual / API push" })),
+    url: h("input", { type: "url", placeholder: "https://example.com/help/" }),
     access: h("input", { value: "public" }),
     maxPages: h("input", { type: "number", min: 1, max: 5000, value: "200" }),
     sync: syncSelect(null),
@@ -883,7 +883,7 @@ function sourceForm(done) {
       },
     },
     h("div", { class: "two" }, field("Name", f.name), field("Type", f.type)),
-    field("URL", f.url, "Sitemap (sitemap.xml), llms.txt index or page URL. Ignored for manual sources (add documents, upload files or push them through the API)."),
+    field("URL", f.url, "Website: the start page; links are followed on the same site under its folder, respecting robots.txt. Sitemap: a sitemap.xml or llms.txt. Ignored for manual sources (upload files or push documents through the API)."),
     h("div", { class: "two" }, field("Access tags", f.access, "public = everyone; users = any signed-in user; other tags = users whose token lists them in groups."), field("Max pages", f.maxPages)),
     field("Keep in sync", f.sync, "Crawled sources only."),
     msg,

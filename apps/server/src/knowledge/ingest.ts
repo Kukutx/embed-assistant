@@ -8,6 +8,7 @@ import { newId } from "../lib/ids.js";
 import type { EmbeddingModel } from "../models/types.js";
 import { chunkText } from "./chunk.js";
 import { extractDocument, parseLlmsTxt, UnsupportedDocumentError } from "./extract.js";
+import { crawl, crawlScope, fetchRobots, inScope, normalizeUrl, robotsAllows } from "./crawl.js";
 import { parseSitemap } from "./html.js";
 import { safeFetch } from "./safeFetch.js";
 import { toSearchText } from "./tokenize.js";
@@ -95,7 +96,7 @@ export async function upsertDocument(
   });
 }
 
-/** Crawl a url/sitemap source. Documents not seen in a successful crawl are removed. */
+/** Crawl a url, sitemap (or llms.txt) or website source. Documents not seen in a successful crawl are removed. */
 export async function ingestSource(deps: IngestDeps, tenantId: string, sourceId: string): Promise<void> {
   const source = await getSource(deps.sql, tenantId, sourceId);
   if (!source) return;
@@ -106,47 +107,67 @@ export async function ingestSource(deps: IngestDeps, tenantId: string, sourceId:
   await setSourceStatus(deps.sql, tenantId, sourceId, "running");
   const fetchOpts = { allowPrivate: deps.allowPrivate };
   try {
-    let pages: string[];
-    if (source.type === "url") {
-      pages = [source.url!];
-    } else if (/\/llms(-full)?\.txt$/i.test(new URL(source.url!).pathname)) {
-      // llms.txt: a markdown index of the pages that matter, often with .md versions.
-      const res = await safeFetch(source.url!, { ...fetchOpts, accept: "text/markdown,text/plain,*/*;q=0.5" });
-      if (res.status >= 400) throw new Error(`llms.txt HTTP ${res.status}`);
-      pages = parseLlmsTxt(res.body, res.url).slice(0, source.max_pages);
-      if (pages.length === 0) throw new Error("llms.txt contained no links");
-    } else {
-      pages = await collectSitemapUrls(source.url!, source.max_pages, fetchOpts);
-      if (pages.length === 0) throw new Error("sitemap contained no URLs");
-    }
-
     const seen = new Set<string>();
     let failures = 0;
-    const queue = [...pages];
-    const worker = async () => {
-      for (let url = queue.shift(); url; url = queue.shift()) {
-        try {
-          const res = await safeFetch(url, { ...fetchOpts, maxBytes: 20 * 1024 * 1024, accept: CRAWL_ACCEPT });
-          if (res.status >= 400) throw new Error(`HTTP ${res.status}`);
-          const page = await extractDocument(res.bytes, { contentType: res.contentType, name: res.url, baseUrl: res.url }).catch((err) => {
-            if (err instanceof UnsupportedDocumentError) return null;
-            throw err;
-          });
-          if (!page || page.text.trim().length < 20) continue;
-          const externalId = page.canonical ?? res.url;
+    let attempted = 0;
+    /** Fetch, extract and store one page; returns its links (for website crawls). */
+    const visit = async (url: string): Promise<string[]> => {
+      attempted++;
+      try {
+        const res = await safeFetch(url, { ...fetchOpts, maxBytes: 20 * 1024 * 1024, accept: CRAWL_ACCEPT });
+        if (res.status >= 400) throw new Error(`HTTP ${res.status}`);
+        const page = await extractDocument(res.bytes, { contentType: res.contentType, name: res.url, baseUrl: res.url }).catch((err) => {
+          if (err instanceof UnsupportedDocumentError) return null;
+          throw err;
+        });
+        if (!page) return [];
+        const externalId = page.canonical ?? res.url;
+        if (!page.noindex && page.text.trim().length >= 20 && !seen.has(externalId)) {
           await upsertDocument(deps, source, { externalId, title: page.title, url: externalId, content: page.text });
           seen.add(externalId);
-        } catch (err) {
-          failures++;
-          deps.log.warn({ url, err: (err as Error).message }, "ingest: page failed");
         }
+        return page.links ?? [];
+      } catch (err) {
+        failures++;
+        deps.log.warn({ url, err: (err as Error).message }, "ingest: page failed");
+        return [];
       }
     };
-    await Promise.all(Array.from({ length: 4 }, worker));
+
+    if (source.type === "website") {
+      const scope = crawlScope(source.url!);
+      const robots = await fetchRobots(scope.origin, fetchOpts);
+      const allowed = (u: string) => inScope(u, scope) && robotsAllows(robots, new URL(u).pathname + new URL(u).search);
+      // Pages listed in the site's sitemaps are crawled too (orphans that no link reaches).
+      const fromSitemaps: string[] = [];
+      for (const sm of robots.sitemaps.slice(0, 5)) {
+        fromSitemaps.push(...(await collectSitemapUrls(sm, source.max_pages, fetchOpts).catch(() => [])));
+      }
+      await crawl([source.url!, ...fromSitemaps], { maxPages: source.max_pages, accept: (u) => u === normalizeUrl(source.url!) || allowed(u) }, visit);
+    } else {
+      let pages: string[];
+      if (source.type === "url") {
+        pages = [source.url!];
+      } else if (/\/llms(-full)?\.txt$/i.test(new URL(source.url!).pathname)) {
+        // llms.txt: a markdown index of the pages that matter, often with .md versions.
+        const res = await safeFetch(source.url!, { ...fetchOpts, accept: "text/markdown,text/plain,*/*;q=0.5" });
+        if (res.status >= 400) throw new Error(`llms.txt HTTP ${res.status}`);
+        pages = parseLlmsTxt(res.body, res.url).slice(0, source.max_pages);
+        if (pages.length === 0) throw new Error("llms.txt contained no links");
+      } else {
+        pages = await collectSitemapUrls(source.url!, source.max_pages, fetchOpts);
+        if (pages.length === 0) throw new Error("sitemap contained no URLs");
+      }
+      const queue = [...pages];
+      const worker = async () => {
+        for (let url = queue.shift(); url; url = queue.shift()) await visit(url);
+      };
+      await Promise.all(Array.from({ length: 4 }, worker));
+    }
 
     if (seen.size === 0) throw new Error(`no pages could be ingested (${failures} failed)`);
     // Only prune when most pages succeeded, so a flaky crawl doesn't wipe the index.
-    if (failures <= pages.length * 0.2) {
+    if (failures <= attempted * 0.2) {
       await deps.sql`DELETE FROM documents WHERE source_id = ${sourceId} AND NOT (external_id = ANY(${[...seen]}))`;
     }
     await setSourceStatus(deps.sql, tenantId, sourceId, "succeeded", failures ? `${failures} page(s) failed` : null);

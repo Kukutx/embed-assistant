@@ -6,7 +6,7 @@ This guide adds the assistant to a site that is already live and checks that it 
 
 Pick **one** job, usually questions about one product's help pages or documentation. Write down:
 
-- the pages it should know (a sitemap URL, an `llms.txt`, a docs folder, or files to upload);
+- the pages it should know (the help section's start page, a sitemap URL, an `llms.txt`, or files to upload);
 - where a visitor goes when the assistant cannot help (support email, ticket form, chat URL);
 - 20 to 30 real questions visitors ask today, with the page that answers each. They become the evaluation set.
 
@@ -34,7 +34,7 @@ Run `docker compose up -d` again after changing `.env`. On a single VM (for exam
 
 In the console (`/admin`):
 
-1. **Knowledge → Add knowledge**: the sitemap or `llms.txt` of the site, with a re-sync schedule (daily is typical). Upload files for content that is not public.
+1. **Knowledge → Add knowledge**: a **Website** source with the start page of the section to cover (links are followed on the same site, under that folder, respecting `robots.txt`), or the site's sitemap or `llms.txt`, with a re-sync schedule (daily is typical). Upload files for content that is not public.
 2. **Knowledge → Test search**: try five of your questions. If the right page is not in the results, the assistant cannot answer it; fix the source (missing pages, pages behind a login, content rendered only by JavaScript) before going on.
 
 ## 4. Configure the assistant and the widget
