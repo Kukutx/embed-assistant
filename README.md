@@ -42,6 +42,8 @@ The script creates `.env` with a random `SECRET_KEY`, starts Postgres and the se
 
 It works without any API key (offline quoting mode). Add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` (or `OLLAMA_BASE_URL`) to `.env` and run `docker compose up -d` to get full AI answers.
 
+Adding it to a site that is already live? Follow the step-by-step [pilot guide](docs/pilot.md): knowledge, evaluation, the script tag, and what to watch each week.
+
 ## Embed it
 
 ```html
