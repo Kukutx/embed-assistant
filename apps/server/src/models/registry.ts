@@ -42,7 +42,14 @@ const ModelsFileSchema = z.object({
   /** alias -> ordered deployment ids (first available wins; later ones are failover). */
   aliases: z.record(z.string(), z.array(z.string()).min(1)),
   embeddings: z
-    .object({ id: z.string().default("embeddings"), baseUrl: z.string(), model: z.string(), apiKey: z.string().optional() })
+    .object({
+      id: z.string().default("embeddings"),
+      baseUrl: z.string(),
+      model: z.string(),
+      apiKey: z.string().optional(),
+      /** Texts per request (default 64). */
+      batchSize: z.number().int().min(1).max(2048).optional(),
+    })
     .optional(),
   /** Optional reranker (`POST {baseUrl}/rerank`), applied to the fused search results. */
   rerank: z
@@ -110,6 +117,7 @@ export function defaultModelsFile(cfg: Config): ModelsFile {
       baseUrl: cfg.EMBEDDINGS_BASE_URL,
       model: cfg.EMBEDDINGS_MODEL,
       apiKey: cfg.EMBEDDINGS_API_KEY,
+      ...(cfg.EMBEDDINGS_BATCH_SIZE ? { batchSize: cfg.EMBEDDINGS_BATCH_SIZE } : {}),
     };
   }
   if (cfg.RERANK_BASE_URL && cfg.RERANK_MODEL) {
@@ -146,7 +154,7 @@ export class ModelRegistry {
       for (const id of ids) if (!this.deployments.has(id)) throw new Error(`alias ${alias} references unknown deployment ${id}`);
     }
     const e = file.embeddings;
-    this.embeddings = e ? new OpenAICompatibleEmbeddings({ id: e.id, baseUrl: e.baseUrl, model: e.model, apiKey: e.apiKey }) : null;
+    this.embeddings = e ? new OpenAICompatibleEmbeddings({ id: e.id, baseUrl: e.baseUrl, model: e.model, apiKey: e.apiKey, batchSize: e.batchSize }) : null;
     const r = file.rerank;
     this.reranker = r ? new HttpReranker({ id: r.id, baseUrl: r.baseUrl, model: r.model, apiKey: r.apiKey }) : null;
   }

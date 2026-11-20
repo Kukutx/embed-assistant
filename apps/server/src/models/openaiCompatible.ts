@@ -143,7 +143,7 @@ export function toOpenAIMessages(turns: ChatTurn[]): Record<string, unknown>[] {
 export class OpenAICompatibleEmbeddings implements EmbeddingModel {
   readonly id: string;
   readonly model: string;
-  constructor(private readonly o: Omit<OpenAICompatibleOptions, "requiresKey" | "vision">) {
+  constructor(private readonly o: Omit<OpenAICompatibleOptions, "requiresKey" | "vision"> & { batchSize?: number | undefined }) {
     this.id = o.id;
     this.model = o.model;
   }
@@ -151,8 +151,9 @@ export class OpenAICompatibleEmbeddings implements EmbeddingModel {
   async embed(texts: string[], signal?: AbortSignal): Promise<number[][]> {
     if (texts.length === 0) return [];
     const out: number[][] = [];
-    for (let i = 0; i < texts.length; i += 64) {
-      const batch = texts.slice(i, i + 64);
+    const size = this.o.batchSize ?? 64;
+    for (let i = 0; i < texts.length; i += size) {
+      const batch = texts.slice(i, i + size);
       const res = await fetch(`${this.o.baseUrl.replace(/\/$/, "")}/embeddings`, {
         method: "POST",
         signal: signal ?? AbortSignal.timeout(this.o.timeoutMs ?? 60_000),

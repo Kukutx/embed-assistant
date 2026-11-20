@@ -29,6 +29,18 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Optional: a multilingual embedding model on this server, for semantic search with no
+  # API key or per-use cost (about 1.3 GB of memory). install.sh LOCAL_EMBEDDINGS=1 turns it on
+  # by setting COMPOSE_PROFILES=embeddings and the EMBEDDINGS_* settings in .env.
+  embeddings:
+    image: ollama/ollama:${OLLAMA_VERSION:-0.40.16}
+    profiles: ["embeddings"]
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1" # keep the model loaded, so the first question after a quiet hour is not slow
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
   caddy:
     image: caddy:2
     ports:
@@ -50,3 +62,4 @@ volumes:
   db-data:
   caddy-data:
   caddy-config:
+  ollama-data:

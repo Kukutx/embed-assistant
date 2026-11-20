@@ -42,9 +42,14 @@ export async function upsertDocument(
 ): Promise<{ id: string; changed: boolean }> {
   const { sql } = deps;
   const hash = sha256Hex(`${doc.title}\n${doc.url ?? ""}\n${doc.content}`);
-  const existing = await sql<{ id: string; content_hash: string }[]>`
-    SELECT id, content_hash FROM documents WHERE source_id = ${source.id} AND external_id = ${doc.externalId}`;
-  if (existing[0]?.content_hash === hash) {
+  const model = deps.embeddings?.model ?? null;
+  const existing = await sql<{ id: string; content_hash: string; stale: boolean }[]>`
+    SELECT id, content_hash,
+      -- With an embedding model, chunks embedded by another model (or none) must be embedded again.
+      (${model}::text IS NOT NULL AND EXISTS (
+        SELECT 1 FROM chunks c WHERE c.document_id = documents.id AND c.embedding_model IS DISTINCT FROM ${model}::text)) AS stale
+    FROM documents WHERE source_id = ${source.id} AND external_id = ${doc.externalId}`;
+  if (existing[0]?.content_hash === hash && !existing[0].stale) {
     await sql`UPDATE documents SET updated_at = now() WHERE id = ${existing[0].id}`;
     return { id: existing[0].id, changed: false };
   }

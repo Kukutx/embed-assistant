@@ -9,6 +9,8 @@
 #             Default: <public-ip>.sslip.io, a free name that works without a domain.
 # KEYS_FILE   optional file with KEY=value lines (model API keys and other settings)
 #             merged into .env. It is read, never printed.
+# LOCAL_EMBEDDINGS=1  run a multilingual embedding model (bge-m3) on this server for semantic
+#             search, instead of an embeddings API. Free; needs about 1.3 GB of memory.
 # VERSION     image version (default: latest release).
 # DIR         install directory (default: /opt/embed-assistant).
 #
@@ -97,8 +99,23 @@ if grep -q '^OPENAI_API_KEY=sk-or-' .env; then
   setenv OPENAI_MODEL openai/gpt-5-mini
 fi
 
+if [ "${LOCAL_EMBEDDINGS:-}" = 1 ]; then
+  setenv COMPOSE_PROFILES embeddings
+  setenv EMBEDDINGS_BASE_URL http://embeddings:11434/v1
+  setenv EMBEDDINGS_MODEL bge-m3
+  setenv EMBEDDINGS_BATCH_SIZE 8
+fi
+
 say "Starting (https://$DOMAIN)"
 docker compose pull -q
+if grep -q '^COMPOSE_PROFILES=.*embeddings' .env; then
+  # The model must be there before the server starts embedding documents.
+  docker compose up -d embeddings
+  model=$(grep '^EMBEDDINGS_MODEL=' .env | cut -d= -f2- || true)
+  for _ in $(seq 1 30); do docker compose exec -T embeddings ollama list >/dev/null 2>&1 && break; sleep 2; done
+  echo "Downloading the embedding model ${model:-bge-m3} (once, about 1.2 GB)"
+  docker compose exec -T embeddings ollama pull "${model:-bge-m3}" >/dev/null
+fi
 docker compose up -d
 for _ in $(seq 1 60); do
   docker compose exec -T server node -e "fetch('http://127.0.0.1:8787/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" 2>/dev/null && break

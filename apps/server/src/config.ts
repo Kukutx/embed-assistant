@@ -47,6 +47,8 @@ const EnvSchema = z.object({
   EMBEDDINGS_BASE_URL: z.string().url().optional(),
   EMBEDDINGS_API_KEY: z.string().optional(),
   EMBEDDINGS_MODEL: z.string().optional(),
+  /** Texts per embeddings request (default 64; lower it for a small CPU-only server). */
+  EMBEDDINGS_BATCH_SIZE: z.coerce.number().int().min(1).max(2048).optional(),
   /** Optional reranker with a `POST {base}/rerank` endpoint (Cohere, Jina, vLLM, Infinity...). */
   RERANK_BASE_URL: z.string().url().optional(),
   RERANK_API_KEY: z.string().optional(),

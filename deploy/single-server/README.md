@@ -26,6 +26,7 @@ The script prints the console URL and the first admin key (also saved in `/opt/e
 | Serve another site | add `sites/<name>.caddy` (for example `www.example.com { reverse_proxy app:8080 }`), then `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile` |
 | Update the deployment files | run `install.sh` again: it replaces `docker-compose.yml` and `backup.sh`, keeps `.env`, `Caddyfile`, `sites/`, data and certificates |
 | Backup now | `./backup.sh` (daily at 03:30 by cron; 14 kept in `backups/`) |
+| Semantic search without an API | run `install.sh` again with `LOCAL_EMBEDDINGS=1`: a multilingual embedding model (bge-m3, about 1.3 GB of memory) runs next to the server, then *Sync* each source once to embed it |
 | Off-site backups | set `BACKUP_UPLOAD_URL` in `.env` to a write URL prefix, e.g. an Oracle Object Storage pre-authenticated request ending in `/o/` (on Oracle Cloud, [`offsite-backup.sh`](../oracle-cloud/README.md#off-site-backups) sets it up without copying anything) |
 | Restore | `docker compose exec -T db pg_restore -U postgres -d embed_assistant --clean --if-exists < backups/<file>.dump` |
 

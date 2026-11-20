@@ -27,6 +27,7 @@ All settings are environment variables (a `.env` file works with Docker Compose 
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `llama3.2` |
 | `OLLAMA_VISION` | `false`: set `true` when `OLLAMA_MODEL` is a vision model (e.g. `llama3.2-vision`, `qwen2.5vl`) |
 | `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_API_KEY`, `EMBEDDINGS_MODEL` | (optional, any OpenAI-compatible `/embeddings`) |
+| `EMBEDDINGS_BATCH_SIZE` | `64`: texts per embeddings request; lower it (e.g. `8`) for a model on a small CPU-only server |
 | `RERANK_BASE_URL`, `RERANK_API_KEY`, `RERANK_MODEL` | (optional, any `POST /rerank` endpoint in the Cohere shape: Cohere, Jina, vLLM, Infinity...) |
 | `MODELS_CONFIG` | Path to a JSON file that replaces all of the above. |
 

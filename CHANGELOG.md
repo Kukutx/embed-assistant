@@ -2,6 +2,14 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.18
+
+Semantic search for free.
+
+- **Local embeddings on the single server**: `install.sh` with `LOCAL_EMBEDDINGS=1` runs a multilingual embedding model (bge-m3 through Ollama, about 1.3 GB of memory) next to the server, so questions match by meaning in any language without an embeddings API or per-use cost.
+- **Adding or changing the embedding model now embeds existing documents** on the next sync. Before, unchanged documents were skipped and kept their old vectors (or none).
+- `EMBEDDINGS_BATCH_SIZE` (or `batchSize` in models.json) sets how many texts go in one embeddings request (default 64).
+
 ## 1.0.17
 
 The console speaks Italian and Chinese.

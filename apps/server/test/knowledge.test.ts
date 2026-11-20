@@ -15,7 +15,7 @@ import { createApp } from "../src/http/app.js";
 import type { Services } from "../src/http/env.js";
 import { crawlScope, inScope, normalizeUrl, parseRobots, robotsAllows } from "../src/knowledge/crawl.js";
 import { detectKind, extractDocument, parseLlmsTxt } from "../src/knowledge/extract.js";
-import { ingestSource, scheduleDueSyncs } from "../src/knowledge/ingest.js";
+import { ingestSource, scheduleDueSyncs, upsertDocument } from "../src/knowledge/ingest.js";
 import { retrieve } from "../src/knowledge/retrieve.js";
 import { parseRerank } from "../src/models/rerank.js";
 import { createLogger } from "../src/lib/log.js";
@@ -238,6 +238,22 @@ describe.skipIf(!DB)("knowledge sources (postgres)", () => {
     // Not: /blog (out of scope), /help/private (robots.txt), the nofollow link, the image, the noindex page itself.
     expect(titles).toEqual(["After hidden", "Deep page", "FAQ", "Help center"]);
     await admin("POST", "/sources", { name: "No url", type: "website" }, 400);
+  });
+
+  it("embeds unchanged documents again when an embedding model is added or changed", async () => {
+    const src = await admin("POST", "/sources", { name: "Re-embed", type: "manual" }, 201);
+    const source = { id: src.id, tenant_id: tenantId, access: ["public"] };
+    const doc = { externalId: "faq", title: "FAQ", url: null, content: "Parcels ship within two working days from the warehouse." };
+    const fake = (model: string) => ({ id: "fake", model, embed: async (texts: string[]) => texts.map(() => [1, 0, 0]) });
+    const models = async (id: string) => (await sql<{ m: string | null }[]>`SELECT DISTINCT embedding_model AS m FROM chunks WHERE document_id = ${id}`).map((r) => r.m);
+    const first = await upsertDocument({ ...s.ingest, embeddings: null }, source, doc);
+    expect(await models(first.id)).toEqual([null]);
+    expect((await upsertDocument({ ...s.ingest, embeddings: null }, source, doc)).changed).toBe(false);
+    expect((await upsertDocument({ ...s.ingest, embeddings: fake("a") }, source, doc)).changed).toBe(true);
+    expect(await models(first.id)).toEqual(["a"]);
+    expect((await upsertDocument({ ...s.ingest, embeddings: fake("a") }, source, doc)).changed).toBe(false);
+    expect((await upsertDocument({ ...s.ingest, embeddings: fake("b") }, source, doc)).changed).toBe(true);
+    await admin("DELETE", `/sources/${src.id}`, undefined, 204);
   });
 
   it("schedules due re-syncs", async () => {
