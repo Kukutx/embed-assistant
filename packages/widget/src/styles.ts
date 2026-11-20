@@ -3,7 +3,7 @@ export const STYLES = /* css */ `
 :host{all:initial}
 *,*::before,*::after{box-sizing:border-box}
 .ea-panel{
-  --ea-bg:#ffffff;--ea-fg:#16181d;--ea-muted:#5f6672;--ea-faint:#8b929c;--ea-border:#e4e6ea;--ea-surface:#f3f4f6;
+  --ea-bg:#ffffff;--ea-fg:#16181d;--ea-muted:#5f6672;--ea-faint:#6b7280;--ea-border:#e4e6ea;--ea-surface:#f3f4f6;
   --ea-surface-2:#f8f9fa;--ea-code-bg:#f3f4f6;--ea-shadow:0 12px 48px rgba(16,24,40,.18),0 2px 8px rgba(16,24,40,.08);
   --ea-danger:#b42318;--ea-focus:var(--ea-accent);
   position:fixed;bottom:88px;right:20px;width:400px;height:min(680px,calc(100vh - 108px));height:min(680px,calc(100dvh - 108px));
@@ -15,7 +15,7 @@ export const STYLES = /* css */ `
 .ea-panel.ea-left{right:auto;left:20px;transform-origin:bottom left}
 .ea-panel.ea-open{opacity:1;transform:none;pointer-events:auto;visibility:visible}
 .ea-panel.ea-expanded{width:min(760px,calc(100vw - 40px));height:calc(100vh - 108px);height:calc(100dvh - 108px)}
-.ea-panel.ea-dark{--ea-bg:#17181b;--ea-fg:#ececee;--ea-muted:#a4a8b1;--ea-faint:#7d828c;--ea-border:#2c2e33;--ea-surface:#25272c;
+.ea-panel.ea-dark{--ea-bg:#17181b;--ea-fg:#ececee;--ea-muted:#a4a8b1;--ea-faint:#8e939c;--ea-border:#2c2e33;--ea-surface:#25272c;
   --ea-surface-2:#1e2024;--ea-code-bg:#222429;--ea-shadow:0 12px 48px rgba(0,0,0,.5);--ea-danger:#f97066}
 @media (max-width:640px){
   .ea-panel,.ea-panel.ea-expanded{inset:0;width:100%;height:100%;border-radius:0;border:0;transform:translateY(16px)}
@@ -167,4 +167,6 @@ a.ea-source:hover{background:var(--ea-surface-2)}
 .ea-followup{align-self:flex-start;max-width:100%;text-align:left;font:inherit;font-size:13.5px;color:var(--ea-fg);background:var(--ea-bg);border:1px solid var(--ea-border);border-radius:10px;padding:6px 12px;cursor:pointer}
 .ea-followup:hover{background:var(--ea-surface-2);border-color:var(--ea-faint)}
 .ea-banner{margin:8px 16px 0;padding:8px 12px;border-radius:10px;background:var(--ea-surface);color:var(--ea-muted);font-size:13px}
+/* Windows high-contrast and other forced-colour modes: keep shapes and focus visible. */
+@media (forced-colors: active){.ea-panel,.ea-composer,.ea-suggestion,.ea-followup,.ea-msg-user .ea-bubble{border:1px solid CanvasText}.ea-send{border:1px solid ButtonText;forced-color-adjust:none;background:ButtonText;color:ButtonFace}.ea-composer:focus-within{outline:2px solid Highlight}}
 `;

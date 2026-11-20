@@ -78,6 +78,7 @@ import {
         -webkit-tap-highlight-color:transparent;padding:0}
       .ea-launcher:hover{transform:scale(1.05)}
       .ea-launcher:focus-visible{outline:3px solid ${accent};outline-offset:3px}
+      @media (forced-colors: active){.ea-launcher{border:2px solid ButtonText}}
       .ea-launcher[hidden]{display:none}
       @media (prefers-reduced-motion:reduce){.ea-launcher{transition:none}.ea-launcher:hover{transform:none}}
       @media print{.ea-launcher{display:none}}`;
