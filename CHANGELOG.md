@@ -2,6 +2,13 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.19
+
+Every document gets semantic search.
+
+- **Documents are embedded in the background**: when embeddings are turned on or the model changes, the server now adds vectors to every stored passage within minutes, including manual and uploaded documents, which are never re-crawled. Passages whose embedding failed (the embeddings service was down) are retried every 5 minutes instead of staying keyword-only until their content changes.
+- **No unrelated citations**: when the sources do not answer a question, the assistant no longer cites or describes other pages.
+
 ## 1.0.18
 
 Semantic search for free.

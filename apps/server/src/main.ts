@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { loadConfig } from "./config.js";
 import { migrate } from "./db/migrate.js";
 import { createApp } from "./http/app.js";
-import { ingestSource, scheduleDueSyncs } from "./knowledge/ingest.js";
+import { embedStaleChunks, ingestSource, scheduleDueSyncs } from "./knowledge/ingest.js";
 import { JobWorker } from "./knowledge/jobs.js";
 import { metrics } from "./lib/metrics.js";
 import { purgeExpired } from "./lib/retention.js";
@@ -40,12 +40,23 @@ const worker = cfg.RUN_WORKER
     })
   : null;
 worker?.start();
+/** Documents stored before embeddings were turned on (or with another model) get vectors in the background. */
+let backfilling = false;
+const backfill = () => {
+  if (!worker || backfilling) return;
+  backfilling = true;
+  void embedStaleChunks(s.ingest)
+    .catch((err) => log.warn({ err }, "embedding backfill failed"))
+    .finally(() => (backfilling = false));
+};
+backfill();
 
 const timers = [
   setInterval(() => void s.executor.reapStale().catch((err) => log.warn({ err }, "reaper failed")), 15_000),
   setInterval(() => void s.limiter.sweep().catch(() => {}), 3600_000),
   // Scheduled re-crawls (sources with syncIntervalHours).
   setInterval(() => void scheduleDueSyncs(sql).catch((err) => log.warn({ err }, "sync scheduler failed")), 5 * 60_000),
+  setInterval(backfill, 5 * 60_000),
   setInterval(
     () =>
       void purgeExpired(sql, cfg.DEFAULT_RETENTION_DAYS)

@@ -64,14 +64,7 @@ export async function upsertDocument(
       deps.log.warn({ err, doc: doc.externalId }, "embedding failed; storing chunks without vectors");
     }
   }
-  const dim = vectors?.[0]?.length ?? null;
-  if (dim && dim <= MAX_HNSW_DIM && !indexedDims.has(dim)) {
-    // One partial HNSW index per embedding dimension (models can change without a migration).
-    await sql.unsafe(
-      `CREATE INDEX IF NOT EXISTS chunks_embedding_${dim} ON chunks USING hnsw ((embedding::vector(${dim})) vector_cosine_ops) WHERE embedding_dim = ${dim}`,
-    );
-    indexedDims.add(dim);
-  }
+  await ensureVectorIndex(sql, vectors?.[0]?.length ?? null);
 
   return sql.begin(async (tx) => {
     let id = existing[0]?.id;
@@ -99,6 +92,57 @@ export async function upsertDocument(
     }
     return { id: docId, changed: true };
   });
+}
+
+/** One partial HNSW index per embedding dimension (models can change without a migration). */
+async function ensureVectorIndex(sql: Sql, dim: number | null): Promise<void> {
+  if (!dim || dim > MAX_HNSW_DIM || indexedDims.has(dim)) return;
+  await sql.unsafe(
+    `CREATE INDEX IF NOT EXISTS chunks_embedding_${dim} ON chunks USING hnsw ((embedding::vector(${dim})) vector_cosine_ops) WHERE embedding_dim = ${dim}`,
+  );
+  indexedDims.add(dim);
+}
+
+/**
+ * Embed chunks that have no vector from the current embedding model: documents
+ * added before embeddings were turned on or the model changed (manual and
+ * uploaded ones are never re-crawled), and chunks whose embedding failed.
+ * Works in batches and stops at the first error, to try again on the next run.
+ * Returns how many chunks were embedded.
+ */
+export async function embedStaleChunks(deps: Pick<IngestDeps, "sql" | "log" | "embeddings">, max = 2000): Promise<number> {
+  const { sql, embeddings } = deps;
+  if (!embeddings) return 0;
+  const batch = 32;
+  let done = 0;
+  while (done < max) {
+    const rows = await sql<{ id: string; text: string }[]>`
+      SELECT c.id, coalesce(c.heading, d.title) || E'\n' || c.content AS text
+      FROM chunks c JOIN documents d ON d.id = c.document_id
+      WHERE c.embedding_model IS DISTINCT FROM ${embeddings.model}
+      ORDER BY c.id LIMIT ${Math.min(batch, max - done)}`;
+    if (!rows.length) break;
+    let vectors: number[][];
+    try {
+      vectors = await embeddings.embed(rows.map((r) => r.text));
+    } catch (err) {
+      deps.log.warn({ err, embedded: done }, "embedding backfill paused");
+      break;
+    }
+    await ensureVectorIndex(sql, vectors[0]?.length ?? null);
+    for (let i = 0; i < rows.length; i++) {
+      const vec = vectors[i];
+      if (!vec) continue;
+      // Another worker may have embedded it meanwhile; leave its result.
+      await sql`
+        UPDATE chunks SET embedding = ${`[${vec.join(",")}]`}::vector, embedding_model = ${embeddings.model}, embedding_dim = ${vec.length}
+        WHERE id = ${rows[i]!.id} AND embedding_model IS DISTINCT FROM ${embeddings.model}`;
+    }
+    done += rows.length;
+    if (rows.length < batch) break;
+  }
+  if (done) deps.log.info({ embedded: done, model: embeddings.model }, "embedding backfill");
+  return done;
 }
 
 /** Crawl a url, sitemap (or llms.txt) or website source. Documents not seen in a successful crawl are removed. */

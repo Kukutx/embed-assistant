@@ -15,7 +15,7 @@ import { createApp } from "../src/http/app.js";
 import type { Services } from "../src/http/env.js";
 import { crawlScope, inScope, normalizeUrl, parseRobots, robotsAllows } from "../src/knowledge/crawl.js";
 import { detectKind, extractDocument, parseLlmsTxt } from "../src/knowledge/extract.js";
-import { ingestSource, scheduleDueSyncs, upsertDocument } from "../src/knowledge/ingest.js";
+import { embedStaleChunks, ingestSource, scheduleDueSyncs, upsertDocument } from "../src/knowledge/ingest.js";
 import { retrieve } from "../src/knowledge/retrieve.js";
 import { parseRerank } from "../src/models/rerank.js";
 import { createLogger } from "../src/lib/log.js";
@@ -253,6 +253,26 @@ describe.skipIf(!DB)("knowledge sources (postgres)", () => {
     expect(await models(first.id)).toEqual(["a"]);
     expect((await upsertDocument({ ...s.ingest, embeddings: fake("a") }, source, doc)).changed).toBe(false);
     expect((await upsertDocument({ ...s.ingest, embeddings: fake("b") }, source, doc)).changed).toBe(true);
+    await admin("DELETE", `/sources/${src.id}`, undefined, 204);
+  });
+
+  it("backfills vectors for documents stored without the current embedding model", async () => {
+    const src = await admin("POST", "/sources", { name: "Backfill", type: "manual" }, 201);
+    const source = { id: src.id, tenant_id: tenantId, access: ["public"] };
+    const { id } = await upsertDocument({ ...s.ingest, embeddings: null }, source, {
+      externalId: "faq", title: "FAQ", url: null, content: "Parcels ship within two working days from the warehouse.",
+    });
+    const seen: string[] = [];
+    const fake = { id: "fake", model: "backfill-model", embed: async (texts: string[]) => (seen.push(...texts), texts.map(() => [0, 1, 0])) };
+    const failing = { ...fake, embed: async () => Promise.reject(new Error("model down")) };
+    expect(await embedStaleChunks({ ...s.ingest, embeddings: failing })).toBe(0);
+    expect(await embedStaleChunks({ ...s.ingest, embeddings: fake })).toBeGreaterThan(0);
+    expect(seen.some((t) => t.startsWith("FAQ\n") && t.includes("Parcels ship"))).toBe(true);
+    const rows = await sql<{ m: string; dim: number }[]>`SELECT embedding_model AS m, embedding_dim AS dim FROM chunks WHERE document_id = ${id}`;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.m === "backfill-model" && r.dim === 3)).toBe(true);
+    expect(await embedStaleChunks({ ...s.ingest, embeddings: fake })).toBe(0);
+    expect(await embedStaleChunks({ ...s.ingest, embeddings: null })).toBe(0);
     await admin("DELETE", `/sources/${src.id}`, undefined, 204);
   });
 
