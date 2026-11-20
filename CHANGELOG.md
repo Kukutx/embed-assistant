@@ -2,6 +2,10 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## Unreleased
+
+- **Off-site backups on Oracle Cloud in one step**: `deploy/oracle-cloud/offsite-backup.sh` (run in Cloud Shell) creates a private bucket and a write-only upload URL and hands it to the VM through instance metadata; `backup.sh` uploads each daily backup there.
+
 ## 1.0.16
 
 Tested on a real public-sector site.

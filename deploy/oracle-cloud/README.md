@@ -27,3 +27,17 @@ Always Free allowance) and installs the server on it with
 Settings: `NAME`, `OCPUS`, `MEMORY_GB`, `RETRY_MINUTES`, `COMPARTMENT_ID`
 (default: the tenancy root). Running it again reuses the network and does
 nothing if the instance exists.
+
+## Off-site backups
+
+The VM keeps 14 daily backups on its own disk. To also keep a copy in Object
+Storage (free up to 20 GB), run in Cloud Shell:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Kukutx/embed-assistant/main/deploy/oracle-cloud/offsite-backup.sh)
+```
+
+It creates a private bucket `embed-assistant-backups` and a write-only
+pre-authenticated request for it, and stores that URL in the VM's instance
+metadata, where the daily `backup.sh` finds it. Nothing has to be copied to the
+VM. The upload URL can add files but cannot read, list or delete them.
