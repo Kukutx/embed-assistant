@@ -2,6 +2,15 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.20
+
+Ready for a privacy review.
+
+- **[docs/privacy.md](docs/privacy.md)**: what is stored, what stays in the visitor's browser, which services receive what, how long each kind of data is kept, how to answer access and erasure requests, and a checklist before going live.
+- **Export one person's data**: `GET /v1/admin/conversations/export?subjectId=user:123` returns every conversation of that visitor or user, whatever its age, to answer an access request.
+- **Feedback comments are masked** like questions when *Redact personal data* is on, in storage and in the `feedback.submitted` webhook. Before, they were stored as typed.
+- **Off-site backups expire**: `offsite-backup.sh` adds a lifecycle rule that deletes copies older than 35 days (`KEEP_DAYS`), so erased data does not live on in old backups, and keeps only the newest upload URL. Run it again to apply.
+
 ## 1.0.19
 
 Every document gets semantic search.

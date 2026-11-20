@@ -40,4 +40,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Kukutx/embed-assistant/main/
 It creates a private bucket `embed-assistant-backups` and a write-only
 pre-authenticated request for it, and stores that URL in the VM's instance
 metadata, where the daily `backup.sh` finds it. Nothing has to be copied to the
-VM. The upload URL can add files but cannot read, list or delete them.
+VM. The upload URL can add files but cannot read, list or delete them. A bucket
+lifecycle rule deletes copies older than 35 days (`KEEP_DAYS`), so data you
+erase does not live on in old backups; it adds the IAM policy Object Storage
+needs to run that rule.

@@ -23,3 +23,5 @@
 | Admin key theft | Keys are scoped (`admin` or `mcp`), stored as SHA-256 hashes, shown once, sent only as bearer tokens; admin API has no CORS. The console keeps the key in tab storage only and ships with a strict CSP. |
 
 Report vulnerabilities privately as described in [SECURITY.md](../SECURITY.md).
+
+Data inventory, processors, retention and data subject requests: [privacy.md](privacy.md).

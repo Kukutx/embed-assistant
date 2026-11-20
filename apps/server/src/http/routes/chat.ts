@@ -524,12 +524,14 @@ export function chatRoutes(app: Hono<AppEnv>, s: Services): void {
       const msg = await getMessage(sql, sess.tenantId, param(c, "id"));
       if (!msg || msg.role !== "assistant") throw notFound("message");
       await ownedConversationOr404(c, msg.conversation_id);
-      await setFeedback(sql, sess.tenantId, msg.id, body.rating, body.comment ?? null);
+      const assistant = await getAssistant(sql, sess.tenantId, c.get("widget").assistant_id);
+      const comment = body.comment ? (assistant?.redact_pii ? redactPii(body.comment) : body.comment) : null;
+      await setFeedback(sql, sess.tenantId, msg.id, body.rating, comment);
       void emitWebhook(sql, sess.tenantId, "feedback.submitted", {
         conversationId: msg.conversation_id,
         messageId: msg.id,
         rating: body.rating,
-        comment: body.comment ?? null,
+        comment,
         answer: msg.content,
         subject: { id: sess.subjectId, kind: sess.subjectKind, name: sess.subjectName },
       }).catch((err) => s.log.warn({ err }, "webhook enqueue failed"));

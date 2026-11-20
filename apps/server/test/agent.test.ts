@@ -359,6 +359,11 @@ describe.skipIf(!DB)("agent features (postgres)", () => {
     expect(r!.retrieval_query).toBe("refund policy duration");
     expect(r!.source_count).toBeGreaterThan(0);
     expect(model.requests.at(-1)!.question).not.toContain("jane.doe");
+
+    const [answer] = await sql<{ id: string }[]>`SELECT id FROM messages WHERE conversation_id = ${conv} AND role = 'assistant' ORDER BY created_at DESC LIMIT 1`;
+    await json(req("POST", `/v1/messages/${answer!.id}/feedback`, { token, body: { rating: "down", comment: "wrong, write to jane.doe@example.com" } }), 204);
+    const [fb] = await sql<{ feedback_comment: string }[]>`SELECT feedback_comment FROM messages WHERE id = ${answer!.id}`;
+    expect(fb!.feedback_comment).toBe("wrong, write to [email]");
   });
 
   it("hands off to a human and delivers a signed webhook with the transcript", async () => {
@@ -440,7 +445,17 @@ describe.skipIf(!DB)("agent features (postgres)", () => {
     expect(lines.length).toBeGreaterThan(3);
     expect(lines.some((l: { messages: unknown[] }) => l.messages.length > 0)).toBe(true);
 
-    const erased = await json(admin("DELETE", `/subjects/${encodeURIComponent("anon:agent-test-abcdefghijklmnop")}`), 200);
+    // Right of access: one subject's conversations, whatever their age.
+    const subject = "anon:agent-test-abcdefghijklmnop";
+    const older = await newConv(token);
+    await sql`UPDATE conversations SET updated_at = now() - interval '20 days' WHERE id = ${older}`;
+    const mine = (await (await admin("GET", `/conversations/export?subjectId=${encodeURIComponent(subject)}`)).text())
+      .trim().split("\n").map((l) => JSON.parse(l) as { id: string; subjectId: string });
+    expect(mine.every((l) => l.subjectId === subject)).toBe(true);
+    expect(mine.map((l) => l.id)).toContain(older);
+    expect((await (await admin("GET", "/conversations/export?subjectId=anon:nobody")).text()).trim()).toBe("");
+
+    const erased = await json(admin("DELETE", `/subjects/${encodeURIComponent(subject)}`), 200);
     expect(erased.deletedConversations).toBeGreaterThan(3);
     void assistantId;
   });

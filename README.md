@@ -162,7 +162,7 @@ apps/server         API server, admin console (static/), migrations
 
 ## Security
 
-Origin allowlist per widget, signed tool requests and webhooks, tool arguments validated against JSON Schema, confirmation for risky actions, optional PII masking, retention and erasure, short-lived session tokens, HS256 user tokens with a capped lifetime, secrets encrypted at rest (AES-256-GCM), admin keys stored as hashes, rate limits and daily token budgets, prompt-injection hardening for retrieved text, safe Markdown rendering (no `innerHTML` of model output), SSRF protection for crawling. See [SECURITY.md](SECURITY.md) and [docs/security.md](docs/security.md).
+Origin allowlist per widget, signed tool requests and webhooks, tool arguments validated against JSON Schema, confirmation for risky actions, optional PII masking, retention and erasure, short-lived session tokens, HS256 user tokens with a capped lifetime, secrets encrypted at rest (AES-256-GCM), admin keys stored as hashes, rate limits and daily token budgets, prompt-injection hardening for retrieved text, safe Markdown rendering (no `innerHTML` of model output), SSRF protection for crawling. See [SECURITY.md](SECURITY.md) and [docs/security.md](docs/security.md). For a privacy review (what is stored, where data goes, retention, access and erasure requests): [docs/privacy.md](docs/privacy.md).
 
 ## Versioning
 

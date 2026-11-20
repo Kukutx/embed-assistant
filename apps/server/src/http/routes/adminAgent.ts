@@ -52,6 +52,10 @@ import type { AppEnv, Services } from "../env.js";
 
 const tid = (c: Context<AppEnv>) => c.get("tenantId");
 const Days = z.object({ days: z.coerce.number().int().min(1).max(365).default(30) });
+const ExportQuery = Days.extend({
+  /** One visitor or user (right of access): all their conversations, whatever their age. */
+  subjectId: z.string().min(1).max(300).optional(),
+});
 const RESERVED_TOOL_NAMES = new Set([SEARCH_TOOL, HANDOFF_TOOL, PLAYBOOK_TOOL, REMEMBER_TOOL, FORGET_TOOL]);
 
 const toKey = (r: KeyRow): ApiKey => ({
@@ -304,8 +308,10 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
 
   route(app, {
       method: "get", path: "/v1/admin/conversations/export", tag: A, summary: "Export conversations (NDJSON)",
-      description: "One JSON object per line: the conversation with all its messages. Covers conversations updated in the last `days` days.",
-      auth: "admin", query: Days, response: { status: 200, description: "application/x-ndjson", contentType: "application/x-ndjson" },
+      description:
+        "One JSON object per line: the conversation with all its messages. Covers conversations updated in the last `days` days, " +
+        "or, with `subjectId` (e.g. `user:123`), every conversation of that visitor or user, to answer a data access request.",
+      auth: "admin", query: ExportQuery, response: { status: 200, description: "application/x-ndjson", contentType: "application/x-ndjson" },
     },
     async (c, { query }) => {
       const tenantId = tid(c);
@@ -316,7 +322,9 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
           try {
             const cursor = sql<{ id: string; widget_id: string; assistant_id: string; subject_id: string; subject_kind: string; title: string | null; handoff_at: Date | null; created_at: Date; updated_at: Date }[]>`
               SELECT id, widget_id, assistant_id, subject_id, subject_kind, title, handoff_at, created_at, updated_at
-              FROM conversations WHERE tenant_id = ${tenantId} AND updated_at >= ${since} ORDER BY updated_at DESC`.cursor(50);
+              FROM conversations WHERE tenant_id = ${tenantId}
+                ${query.subjectId ? sql`AND subject_id = ${query.subjectId}` : sql`AND updated_at >= ${since}`}
+              ORDER BY updated_at DESC`.cursor(50);
             for await (const batch of cursor) {
               const ids = batch.map((b) => b.id);
               const msgs = await sql<{ conversation_id: string; id: string; role: string; content: string; citations: unknown; feedback: string | null; feedback_comment: string | null; tool_calls: unknown; status: string; created_at: Date }[]>`
