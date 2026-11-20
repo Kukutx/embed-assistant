@@ -2,6 +2,10 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## Unreleased
+
+- **TypeScript types for the widget API**: the server publishes `/widget/embed-assistant.d.ts`, generated from the widget's own types at build time and compiled in CI, so sites written in TypeScript get `window.EmbedAssistant` and `window.EmbedAssistantConfig` typed. See [examples/spa](examples/spa/README.md).
+
 ## 1.0.15
 
 Works on any existing website.
@@ -9,7 +13,6 @@ Works on any existing website.
 - **Website sources**: a new knowledge source type, `website`, starts from a page and follows links on the same site, under that page's folder (`https://x.example/help/` covers `/help/...`). It honours `robots.txt` (and crawls the sitemaps it lists), `noindex` and `nofollow`, skips images and other assets, drops tracking parameters and stops at *Max pages*. Sites without a sitemap no longer have to be added one page at a time. *Knowledge → Add knowledge → Website*; `type: "website"` in the API.
 - **Better matches without embeddings**: a question word now also matches the end of a longer word (`site` finds `website`, `zahlung` finds `rechnungszahlung`), so natural questions find the right passages more often.
 - **Console**: Overview shows a *Getting started* checklist (a real AI model, knowledge, an assistant, a widget allowed on a real site, the first questions) until everything is done. The console is usable on phones (scrolling navigation, tables scroll inside their card). Insights no longer prints "null" under Topics.
-- **TypeScript types for the widget API**: the server publishes `/widget/embed-assistant.d.ts`, generated from the widget's own types at build time and compiled in CI, so sites written in TypeScript get `window.EmbedAssistant` and `window.EmbedAssistantConfig` typed. See [examples/spa](examples/spa/README.md).
 - **Single-server deployment**: `install.sh` no longer stops on a fresh server, refreshes `docker-compose.yml` and `backup.sh` when run again, and Caddy serves extra sites from `sites/*.caddy`. `DATABASE_URL` in `.env` now really switches to another Postgres. New [`deploy/oracle-cloud`](deploy/oracle-cloud/) creates an Always Free Arm VM from Cloud Shell and installs everything on first boot.
 
 ## 1.0.14
