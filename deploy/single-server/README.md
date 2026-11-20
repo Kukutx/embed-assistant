@@ -12,6 +12,8 @@ sudo DOMAIN=assistant.example.com KEYS_FILE=./keys.env bash install.sh
 - `KEYS_FILE`: `KEY=value` lines merged into `.env`, for example `ANTHROPIC_API_KEY=…` and `OPENAI_API_KEY=…`. An OpenRouter key (`sk-or-…`) is pointed at OpenRouter automatically, as the failover provider.
 - Open TCP 80 and 443 in the cloud's network rules (Oracle: the VCN security list). The script opens the VM's own firewall.
 
+On Oracle Cloud, [`../oracle-cloud`](../oracle-cloud/) creates the VM, the network rules and runs this script for you from Cloud Shell.
+
 The script prints the console URL and the first admin key (also saved in `/opt/embed-assistant/first-run.txt`, readable by root only). Running it again keeps the existing settings, data and certificates.
 
 ## Operations
