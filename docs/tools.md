@@ -181,6 +181,7 @@ Webhooks follow the [Standard Webhooks](https://www.standardwebhooks.com/) speci
 |---|---|
 | `conversation.created` | `{ conversation, subject }` |
 | `message.completed` | `{ conversationId, widgetId, assistantId, runId, subject, question, answer, tools, sourceCount, deploymentId, usage, guardrail }` (`guardrail` is null unless a [guardrail](quality.md) refused or replaced the answer) |
+| `insights.digest` | `{ reportId, period: { from, to, days }, summary: { conversations, questions, resolutionRate, satisfaction, handoffs }, topics: [{ name, questions, problemRate, examples, suggestion }], url }`: the [weekly digest](quality.md#topics-and-the-weekly-digest) (tenants with `weeklyDigest`) |
 | `guardrail.triggered` | `{ conversationId, widgetId, assistantId, runId, subject, rule, detail, question }`: a [guardrail](quality.md) refused a question (`term`, `topic`, `harmful`, `injection`) or replaced an answer (`answer_term`) |
 | `feedback.submitted` | `{ conversationId, messageId, rating, comment }` |
 | `handoff.requested` | `{ conversation, subject, trigger, reason, summary, pageContext, transcript, requestedAt }` |

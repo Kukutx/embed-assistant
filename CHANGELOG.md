@@ -2,6 +2,15 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.13
+
+Know what to fix next.
+
+- **Question topics**: *Insights → Topics* groups a period's questions by what people need (by the AI model, or by shared words without one), with per-topic questions, conversations, unanswered, rated-down and handed-off counts, a problem rate, example questions and the closest documents. Topics that go worst come first, and for up to five the model suggests the article to write or fix with an outline. Background job; `POST /v1/admin/insights/topics`, `GET /v1/admin/insights/topics[/{id}]`, audited as `insights.analyze-topics`. See [docs/quality.md](docs/quality.md#topics-and-the-weekly-digest).
+- **Weekly digest**: `weeklyDigest` in settings runs the analysis every 7 days and sends the `insights.digest` webhook (summary, top topics, suggestions, console link).
+- The job worker only claims job types it has a handler for.
+- Topic reports, search logs and unsent images follow the retention policy.
+
 ## 1.0.12
 
 Sees what visitors see, and measures what it resolves.

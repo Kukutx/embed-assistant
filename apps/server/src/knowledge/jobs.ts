@@ -4,7 +4,7 @@ import type { Sql } from "../db/pool.js";
 import { newId } from "../lib/ids.js";
 import { withSpan } from "../lib/telemetry.js";
 
-export type JobType = "ingest_source" | "deliver_webhook" | "run_eval";
+export type JobType = "ingest_source" | "deliver_webhook" | "run_eval" | "analyze_topics";
 export interface JobRow {
   id: string;
   tenant_id: string;
@@ -14,7 +14,7 @@ export interface JobRow {
 }
 
 /** Webhooks retry for about 4 hours (30s, 1m, 2m ... 64m); ingestion three times. */
-const MAX_ATTEMPTS: Record<JobType, number> = { ingest_source: 3, deliver_webhook: 9, run_eval: 2 };
+const MAX_ATTEMPTS: Record<JobType, number> = { ingest_source: 3, deliver_webhook: 9, run_eval: 2, analyze_topics: 2 };
 const STALE_AFTER = "15 minutes";
 
 export async function enqueueJob(sql: Sql, tenantId: string, type: JobType, payload: Record<string, unknown>): Promise<string> {
@@ -27,7 +27,7 @@ export async function enqueueJob(sql: Sql, tenantId: string, type: JobType, payl
  * Lanes run independently, so slow work (a crawl, an evaluation run) never
  * delays webhook deliveries.
  */
-export const DEFAULT_LANES: JobType[][] = [["deliver_webhook"], ["ingest_source"], ["run_eval"]];
+export const DEFAULT_LANES: JobType[][] = [["deliver_webhook"], ["ingest_source"], ["run_eval", "analyze_topics"]];
 
 /**
  * Postgres-backed job queue (FOR UPDATE SKIP LOCKED): safe with many workers,
@@ -41,13 +41,16 @@ export class JobWorker {
   constructor(
     private readonly sql: Sql,
     private readonly log: Logger,
-    private readonly handlers: Record<JobType, (job: JobRow) => Promise<void>>,
+    /** Only job types with a handler are claimed. */
+    private readonly handlers: Partial<Record<JobType, (job: JobRow) => Promise<void>>>,
     private readonly idleMs = 1000,
     private readonly lanes: JobType[][] = DEFAULT_LANES,
   ) {}
 
   start(): void {
-    this.loop ??= Promise.all(this.lanes.map((types) => this.run(types)));
+    this.loop ??= Promise.all(
+      this.lanes.map((types) => types.filter((t) => this.handlers[t])).filter((types) => types.length).map((types) => this.run(types)),
+    );
   }
 
   async stop(): Promise<void> {
@@ -56,7 +59,9 @@ export class JobWorker {
   }
 
   /** Claim and run one job (of the given types, default any); returns false when the queue is empty. */
-  async tick(types?: JobType[]): Promise<boolean> {
+  async tick(only?: JobType[]): Promise<boolean> {
+    const types = (only ?? (Object.keys(this.handlers) as JobType[])).filter((t) => this.handlers[t]);
+    if (!types.length) return false;
     await this.sql`
       UPDATE jobs SET status = 'queued', locked_at = NULL, locked_by = NULL
       WHERE status = 'running' AND locked_at < now() - ${STALE_AFTER}::interval`;
@@ -65,7 +70,7 @@ export class JobWorker {
                       attempts = attempts + 1, updated_at = now()
       WHERE id = (
         SELECT id FROM jobs WHERE status = 'queued' AND run_after <= now()
-          ${types ? this.sql`AND type = ANY(${this.sql.array(types)})` : this.sql``}
+          AND type = ANY(${this.sql.array(types)})
         ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1
       )
       RETURNING id, tenant_id, type, payload, attempts`;
@@ -73,7 +78,7 @@ export class JobWorker {
     if (!job) return false;
     try {
       await withSpan(`job ${job.type}`, { attributes: { "embed_assistant.job_id": job.id, "embed_assistant.job_attempt": job.attempts } }, () =>
-        this.handlers[job.type](job),
+        this.handlers[job.type]!(job),
       );
       await this.sql`UPDATE jobs SET status = 'succeeded', last_error = NULL, updated_at = now() WHERE id = ${job.id}`;
     } catch (err) {

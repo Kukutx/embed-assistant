@@ -32,6 +32,7 @@ const NAMED: Record<string, string | [string, string]> = {
   "GET /conversations/export": "conversations.export",
   "POST /logout": "auth.logout",
   "POST /evals/:id/runs": "evals.run",
+  "POST /insights/topics": "insights.analyze-topics",
   "POST /evals/:id/cases": "eval-cases.create",
   "PATCH /evals/:id/cases/:caseId": "eval-cases.update",
   "DELETE /evals/:id/cases/:caseId": "eval-cases.delete",

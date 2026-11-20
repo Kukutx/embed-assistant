@@ -12,6 +12,7 @@ import { createServices, serverVersion } from "./services.js";
 import { initTelemetry } from "./lib/telemetry.js";
 import { deliverWebhook } from "./webhooks/webhooks.js";
 import { runEvalJob } from "./evals/evals.js";
+import { analyzeTopicsJob, scheduleDigests } from "./insights/topics.js";
 
 const cfg = loadConfig();
 // Tracing must be registered before anything creates spans.
@@ -35,6 +36,7 @@ const worker = cfg.RUN_WORKER
           },
         ),
       run_eval: (job) => runEvalJob({ sql, models: s.models, log }, job),
+      analyze_topics: (job) => analyzeTopicsJob({ sql, models: s.models, log, publicBaseUrl: cfg.PUBLIC_BASE_URL }, job),
     })
   : null;
 worker?.start();
@@ -52,6 +54,8 @@ const timers = [
     3600_000,
   ),
   setInterval(() => void purgeAudit(sql, cfg.AUDIT_RETENTION_DAYS).catch((err) => log.warn({ err }, "audit purge failed")), 6 * 3600_000),
+  // Weekly insights digests (tenants with weeklyDigest).
+  setInterval(() => void scheduleDigests(sql).catch((err) => log.warn({ err }, "digest scheduler failed")), 15 * 60_000),
   setInterval(() => void purgeSessions(sql).catch((err) => log.warn({ err }, "session purge failed")), 3600_000),
 ];
 

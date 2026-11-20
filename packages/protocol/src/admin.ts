@@ -556,6 +556,8 @@ export const WebhookEventType = z.enum([
   "message.received",
   /** A guardrail refused a question or replaced an answer. */
   "guardrail.triggered",
+  /** The weekly insights digest (topics, resolution, suggested docs) is ready. */
+  "insights.digest",
 ]);
 export type WebhookEventType = z.infer<typeof WebhookEventType>;
 
@@ -630,6 +632,8 @@ export const TenantSettings = z.object({
   retentionDays: z.number().int().min(1).max(3650).nullable(),
   /** Daily model-token budget shared by widgets without their own budget. null = server default. */
   dailyTokenBudget: z.number().int().positive().nullable(),
+  /** Analyse the last 7 days every week and send the `insights.digest` webhook. */
+  weeklyDigest: z.boolean(),
 });
 export type TenantSettings = z.infer<typeof TenantSettings>;
 export const TenantSettingsPatch = TenantSettings.partial();
@@ -684,6 +688,69 @@ export const Insights = z.object({
     .optional(),
 });
 export type Insights = z.infer<typeof Insights>;
+
+/** A group of similar visitor questions, with how well the assistant handled them. */
+export const QuestionTopic = z.object({
+  name: z.string(),
+  /** Questions asked (repeats included). */
+  questions: z.number().int(),
+  conversations: z.number().int(),
+  /** Questions that found no knowledge. */
+  unanswered: z.number().int(),
+  /** Answers rated not helpful. */
+  downvoted: z.number().int(),
+  /** Questions after which the visitor asked for a person. */
+  handoffs: z.number().int(),
+  /** Share of questions with any of the problems above (0..1). */
+  problemRate: z.number(),
+  /** The most frequent questions of the topic. */
+  examples: z.array(z.string()),
+  /** Existing documents closest to the topic. */
+  relatedDocuments: z.array(z.object({ title: z.string(), url: z.string().nullable() })),
+  /** For topics with problems, when a language model is available: the article to write or fix. */
+  suggestion: z
+    .object({
+      action: z.enum(["write", "update"]),
+      title: z.string(),
+      outline: z.array(z.string()),
+    })
+    .nullable(),
+});
+export type QuestionTopic = z.infer<typeof QuestionTopic>;
+
+export const TopicReport = z.object({
+  id: Id,
+  /** Only this assistant's conversations; null = all. */
+  assistantId: Id.nullable(),
+  days: z.number().int(),
+  from: Timestamp,
+  to: Timestamp,
+  status: z.enum(["queued", "running", "completed", "failed"]),
+  trigger: z.enum(["manual", "schedule"]),
+  /** `model`: grouped by a language model; `keywords`: by shared words (no model available). */
+  method: z.enum(["model", "keywords"]).nullable(),
+  /** Distinct questions analysed (the most frequent, up to 300, are grouped by the model). */
+  questionCount: z.number().int(),
+  /** Most problems first. */
+  topics: z.array(QuestionTopic),
+  summary: z
+    .object({
+      conversations: z.number().int(),
+      questions: z.number().int(),
+      resolutionRate: z.number().nullable(),
+      satisfaction: z.number().nullable(),
+      handoffs: z.number().int(),
+    })
+    .nullable(),
+  error: z.string().nullable(),
+  createdAt: Timestamp,
+  completedAt: Timestamp.nullable(),
+});
+export type TopicReport = z.infer<typeof TopicReport>;
+export const TopicReportRequest = z.object({
+  days: z.number().int().min(1).max(90).default(30),
+  assistantId: Id.optional(),
+});
 
 /** One entry of the tenant's audit log: a change made through the admin API (or a sensitive read such as an export). */
 export const AuditEvent = z.object({

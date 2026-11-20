@@ -29,6 +29,11 @@ export async function purgeExpired(sql: Sql, defaultDays: number): Promise<numbe
     DELETE FROM searches x USING tenants t
     WHERE t.id = x.tenant_id AND coalesce(t.retention_days, ${defaultDays}) > 0
       AND x.created_at < now() - make_interval(days => coalesce(t.retention_days, ${defaultDays}))`;
+  // Topic reports quote questions, so they follow the same retention.
+  await sql`
+    DELETE FROM topic_reports x USING tenants t
+    WHERE t.id = x.tenant_id AND coalesce(t.retention_days, ${defaultDays}) > 0
+      AND x.created_at < now() - make_interval(days => coalesce(t.retention_days, ${defaultDays}))`;
   // Images uploaded but never sent with a question.
   await sql`DELETE FROM attachments WHERE message_id IS NULL AND created_at < now() - interval '24 hours'`;
   await sql`DELETE FROM jobs WHERE status IN ('succeeded', 'failed') AND updated_at < now() - interval '30 days'`;

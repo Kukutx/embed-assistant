@@ -16,6 +16,8 @@ import {
   Insights,
   TenantSettings,
   TenantSettingsPatch,
+  TopicReport,
+  TopicReportRequest,
   Webhook,
   WebhookDelivery,
   WebhookInput,
@@ -25,13 +27,14 @@ import {
 } from "@embed-assistant/protocol";
 import { callAction, createAction, deleteAction, getAction, listActions, toAction, updateAction } from "../../actions/actions.js";
 import { generateAdminKey } from "../../auth/adminKey.js";
-import { insertAdminKey, type KeyRow } from "../../db/store.js";
+import { getAssistant, insertAdminKey, type KeyRow } from "../../db/store.js";
 import { decrypt } from "../../lib/crypto.js";
 import { ApiError, badRequest, notFound } from "../../lib/errors.js";
 import { isSupportedSchema } from "../../lib/jsonSchema.js";
 import { iso, isoOrNull } from "../../lib/time.js";
 import { safeFetch } from "../../knowledge/safeFetch.js";
 import { HANDOFF_TOOL, SEARCH_TOOL } from "../../runs/tools.js";
+import { createTopicReport, getTopicReport, listTopicReports, toTopicReport } from "../../insights/topics.js";
 import {
   createWebhook,
   deleteWebhook,
@@ -239,9 +242,9 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
 
   // ------------------------------------------------------------------ settings
   const readSettings = async (tenantId: string): Promise<TenantSettings> => {
-    const [t] = await sql<{ retention_days: number | null; daily_token_budget: number | null }[]>`
-      SELECT retention_days, daily_token_budget FROM tenants WHERE id = ${tenantId}`;
-    return { retentionDays: t?.retention_days ?? null, dailyTokenBudget: t?.daily_token_budget ?? null };
+    const [t] = await sql<{ retention_days: number | null; daily_token_budget: number | null; weekly_digest: boolean }[]>`
+      SELECT retention_days, daily_token_budget, weekly_digest FROM tenants WHERE id = ${tenantId}`;
+    return { retentionDays: t?.retention_days ?? null, dailyTokenBudget: t?.daily_token_budget ?? null, weeklyDigest: t?.weekly_digest ?? false };
   };
   route(app, { method: "get", path: "/v1/admin/settings", tag: A, summary: "Tenant settings", auth: "admin", response: { status: 200, schema: TenantSettings } },
     async (c) => c.json(await readSettings(tid(c))));
@@ -251,7 +254,8 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
       const cur = await readSettings(tid(c));
       await sql`UPDATE tenants SET
         retention_days = ${body.retentionDays !== undefined ? body.retentionDays : cur.retentionDays},
-        daily_token_budget = ${body.dailyTokenBudget !== undefined ? body.dailyTokenBudget : cur.dailyTokenBudget}
+        daily_token_budget = ${body.dailyTokenBudget !== undefined ? body.dailyTokenBudget : cur.dailyTokenBudget},
+        weekly_digest = ${body.weeklyDigest ?? cur.weeklyDigest}
         WHERE id = ${tid(c)}`;
       return c.json(await readSettings(tid(c)));
     });
@@ -343,6 +347,35 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
           "cache-control": "no-store",
         },
       });
+    });
+
+  // ------------------------------------------------------------------ topics
+  route(app, {
+      method: "post", path: "/v1/admin/insights/topics", tag: A, summary: "Group visitor questions into topics",
+      description:
+        "Starts a background analysis of the questions asked in the last `days` (all assistants, or one): similar questions are grouped " +
+        "into topics with their outcomes, closest documents and, for topics that go badly, a suggested article to write or fix. " +
+        "Uses the `fast` model alias when available (a few calls), otherwise groups by shared words. Poll GET .../topics/{id}.",
+      auth: "admin", body: TopicReportRequest, response: { status: 202, schema: TopicReport },
+    },
+    async (c, { body }) => {
+      const tenantId = tid(c);
+      if (body.assistantId && !(await getAssistant(sql, tenantId, body.assistantId))) throw notFound("assistant");
+      const busy = await sql`SELECT 1 FROM topic_reports WHERE tenant_id = ${tenantId} AND status IN ('queued', 'running') AND created_at > now() - interval '1 hour' LIMIT 1`;
+      if (busy.length) throw new ApiError(ErrorCode.Conflict, "an analysis is already running; try again when it has finished");
+      const actor = c.get("actor");
+      const r = await createTopicReport(sql, { tenantId, assistantId: body.assistantId ?? null, days: body.days, trigger: "manual", createdBy: actor?.name ?? actor?.id ?? null });
+      return c.json(toTopicReport(r), 202);
+    });
+
+  route(app, { method: "get", path: "/v1/admin/insights/topics", tag: A, summary: "Recent topic analyses (newest first)", auth: "admin", response: { status: 200, schema: z.object({ items: z.array(TopicReport) }) } },
+    async (c) => c.json({ items: (await listTopicReports(sql, tid(c))).map(toTopicReport) }));
+
+  route(app, { method: "get", path: "/v1/admin/insights/topics/{id}", tag: A, summary: "One topic analysis", auth: "admin", response: { status: 200, schema: TopicReport } },
+    async (c) => {
+      const r = await getTopicReport(sql, tid(c), param(c, "id"));
+      if (!r) throw notFound("topic report");
+      return c.json(toTopicReport(r));
     });
 
   // ------------------------------------------------------------------ insights

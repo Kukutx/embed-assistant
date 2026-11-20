@@ -142,3 +142,14 @@ refused.
 - **Knowledge gaps**: questions that matched no knowledge, most frequent first.
 - **Searches without results**: queries sent to `POST /v1/search` that matched nothing (`searches`).
 - Top questions, answers rated not helpful, tool calls and errors, and guardrail refusals.
+
+## Topics and the weekly digest
+
+*Insights → Topics* (`POST /v1/admin/insights/topics` with `{"days": 30}`, optionally `assistantId`) groups the period's questions by what people need and shows, per topic, how many questions it had, how many found no knowledge, were rated not helpful or ended with a request for a person, its closest documents, and a few example questions. Topics that go worst come first, and for up to five of them the model proposes the article to write or the existing one to fix, with an outline.
+
+- It runs in the background job queue (`GET /v1/admin/insights/topics/{id}` until `status` is `completed`); one analysis at a time per tenant.
+- With a language model (the `fast` alias, else `standard`), the 300 most frequent distinct questions are grouped by the model in one call, plus one short call per suggestion. Without one, questions are grouped by shared words and there are no suggestions (`method` says which).
+- Questions are sent to the model as data with instructions to ignore anything they say; they are the same (masked, if `redactPii` is on) texts the model already answered.
+- Reports quote up to five example questions per topic, so they follow the tenant's retention period.
+
+Turn on **Weekly insights digest** in *Settings* (`weeklyDigest: true` on `PATCH /v1/admin/settings`) to run the analysis for the last 7 days every week and send it to webhooks subscribed to `insights.digest`: a compact summary (resolution rate, satisfaction, handoffs), the top topics with their suggested articles, and a link to the console. Point it at a small relay to post it in your team chat or ticket system.

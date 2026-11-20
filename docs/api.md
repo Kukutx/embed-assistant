@@ -79,7 +79,9 @@ Rules:
 | `/v1/admin/subjects/{subjectId}` (`DELETE`) | Erase everything about one visitor (conversations and memories) |
 | `/v1/admin/subjects/{subjectId}/memories` (`GET`, `DELETE`) | What assistants remember about one signed-in user ([identity.md](identity.md#long-term-memory)) |
 | `/v1/admin/insights?days=`, `/usage`, `/models` | Analytics |
-| `/v1/admin/keys`, `/settings` | API keys, retention and budget |
+| `/v1/admin/insights/topics` (`POST` to start, `GET` to list), `/v1/admin/insights/topics/{id}` | Question topics with outcomes and suggested articles ([quality.md](quality.md#topics-and-the-weekly-digest)) |
+| `/v1/admin/assistants/{id}/search?q=&access=` | Test what retrieval finds |
+| `/v1/admin/keys`, `/settings` | API keys, retention, budget and the weekly digest |
 | `/v1/admin/me`, `/users`, `/sso`, `/logout` | Caller and permissions, people and roles, single sign-on |
 | `/v1/admin/audit-log` (`?action=&targetId=&actorId=&from=&to=&cursor=`) | Audit log of changes (read-only) |
 | `/v1/admin/evals` (+ `/cases`, `/runs`), `/v1/admin/eval-runs/{id}` (+ `/cancel`) | Evaluation suites, runs and per-case results ([quality.md](quality.md)) |

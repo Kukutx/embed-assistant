@@ -720,6 +720,92 @@ async function knowledge(main) {
   if (list.some((s) => s.status === "queued" || s.status === "running")) pollTimer = setTimeout(() => route(), 3000);
 }
 
+/** Question topics: the latest analysis, and a button to run one for the selected period. */
+async function topicsCard(days) {
+  const card = h("div", { class: "card", style: "margin-bottom:16px" });
+  const draw = async () => {
+    const { items } = await api("GET", "/insights/topics").catch(() => ({ items: [] }));
+    const latest = items[0];
+    const busy = latest && (latest.status === "queued" || latest.status === "running");
+    const start = h("button", {
+      class: "btn primary",
+      type: "button",
+      disabled: busy,
+      text: busy ? "Analysing…" : `Analyse the last ${days} days`,
+      onclick: async () => {
+        try {
+          await api("POST", "/insights/topics", { days });
+          draw();
+        } catch (err) {
+          alert(errorText(err));
+        }
+      },
+    });
+    const done = items.find((r) => r.status === "completed");
+    card.replaceChildren(
+      h("div", { class: "top" }, h("h2", { text: "Topics" }), start),
+      h("p", { class: "muted small", text: "Visitor questions grouped by what people need, with how each group went. Groups that go badly come first, with the article to write or fix." }),
+      done ? topicsTable(done) : h("p", { class: "muted", text: busy ? "The first analysis is running…" : "No analysis yet." }),
+      latest?.status === "failed" ? h("p", { class: "notice error", text: `Last analysis failed: ${latest.error ?? "unknown error"}` }) : null,
+    );
+    if (busy) setTimeout(() => card.isConnected && draw(), 3000);
+  };
+  await draw();
+  return card;
+}
+
+function topicsTable(r) {
+  const pctOf = (x) => `${Math.round(x * 100)}%`;
+  return h(
+    "div",
+    {},
+    h("p", { class: "small muted", text: `${fmtDate(r.from)} – ${fmtDate(r.to)} · ${r.questionCount} distinct questions · grouped ${r.method === "model" ? "by the AI model" : "by shared words"}${r.trigger === "schedule" ? " · weekly digest" : ""}` }),
+    r.topics.length
+      ? h(
+          "table",
+          {},
+          h("thead", {}, h("tr", {}, ["Topic", "Questions", "Problems", "Suggested article"].map((t) => h("th", { text: t })))),
+          h(
+            "tbody",
+            {},
+            r.topics.map((t) =>
+              h(
+                "tr",
+                {},
+                h(
+                  "td",
+                  {},
+                  h("strong", { text: t.name }),
+                  h("div", { class: "small muted", text: t.examples.slice(0, 3).map((e) => `“${e}”`).join(" · ") }),
+                  t.relatedDocuments.length ? h("div", { class: "small", text: `Closest docs: ${t.relatedDocuments.map((d) => d.title).join(", ")}` }) : null,
+                ),
+                h("td", { text: String(t.questions) }),
+                h(
+                  "td",
+                  {},
+                  h("span", { class: `badge ${t.problemRate >= 0.5 ? "bad" : t.problemRate > 0 ? "warn" : "ok"}`, text: pctOf(t.problemRate) }),
+                  h("div", { class: "small muted", text: [t.unanswered && `${t.unanswered} no knowledge`, t.downvoted && `${t.downvoted} rated down`, t.handoffs && `${t.handoffs} to a person`].filter(Boolean).join(", ") }),
+                ),
+                h(
+                  "td",
+                  {},
+                  t.suggestion
+                    ? h(
+                        "div",
+                        {},
+                        h("strong", { text: `${t.suggestion.action === "update" ? "Update" : "Write"}: ${t.suggestion.title}` }),
+                        t.suggestion.outline.length ? h("ul", { class: "small" }, ...t.suggestion.outline.map((o) => h("li", { text: o }))) : null,
+                      )
+                    : h("span", { class: "muted small", text: "—" }),
+                ),
+              ),
+            ),
+          ),
+        )
+      : h("p", { class: "muted", text: "No questions in this period." }),
+  );
+}
+
 /** Try a query against an assistant's knowledge, as a visitor with some access groups would search it. */
 async function searchTester() {
   const assistants = await api("GET", "/assistants").catch(() => []);
@@ -752,7 +838,7 @@ async function searchTester() {
           : h("p", { class: "muted", text: "Nothing found. Visitors asking this get no grounded answer: add or fix a document." }),
       );
     } catch (err) {
-      out.replaceChildren(h("p", { class: "error", text: errorText(err) }));
+      out.replaceChildren(h("p", { class: "notice error", text: errorText(err) }));
     }
   };
   return h(
@@ -1163,6 +1249,7 @@ async function insights(main) {
       stat("Satisfaction", ins.satisfaction === null ? "—" : `${Math.round(ins.satisfaction * 100)}%`),
       stat("Ratings", `${ins.feedbackUp} 👍 · ${ins.feedbackDown} 👎`),
     ),
+    await topicsCard(days),
     ins.resolution?.engaged
       ? h(
           "p",
@@ -1733,6 +1820,7 @@ async function settings(main) {
   const [st, keys] = await Promise.all([api("GET", "/settings"), api("GET", "/keys")]);
   const retention = h("input", { type: "number", min: 1, max: 3650, value: st.retentionDays ?? "", placeholder: "Keep forever" });
   const budget = h("input", { type: "number", min: 1, value: st.dailyTokenBudget ?? "", placeholder: "Server default" });
+  const digest = h("input", { type: "checkbox", checked: !!st.weeklyDigest });
   const msg = h("div");
   const keyRows = h("tbody");
   for (const k of keys) {
@@ -1762,7 +1850,7 @@ async function settings(main) {
           onsubmit: async (e) => {
             e.preventDefault();
             try {
-              await api("PATCH", "/settings", { retentionDays: retention.value ? Number(retention.value) : null, dailyTokenBudget: budget.value ? Number(budget.value) : null });
+              await api("PATCH", "/settings", { retentionDays: retention.value ? Number(retention.value) : null, dailyTokenBudget: budget.value ? Number(budget.value) : null, weeklyDigest: digest.checked });
               msg.replaceChildren(notice("Saved."));
             } catch (err) {
               msg.replaceChildren(notice(errorText(err), true));
@@ -1770,6 +1858,8 @@ async function settings(main) {
           },
         },
         h("div", { class: "two" }, field("Delete conversations after (days)", retention, "Empty keeps them forever. Deletion is permanent."), field("Daily model-token budget", budget, "Shared by widgets without their own budget.")),
+        h("label", { class: "check" }, digest, "Weekly insights digest"),
+        h("p", { class: "muted small", text: "Every 7 days, analyse the week's questions into topics with suggested articles (Insights) and send them to webhooks subscribed to insights.digest, e.g. to post in your team chat." }),
         msg,
         h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: "Save" })),
       ),
