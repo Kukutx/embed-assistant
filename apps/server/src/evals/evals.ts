@@ -57,6 +57,7 @@ export interface CaseRow {
   expected_outcome: EvalOutcome | null;
   access: string[];
   tags: string[];
+  history: { role: "user" | "assistant"; content: string }[];
   created_at: Date;
   updated_at: Date;
 }
@@ -112,6 +113,7 @@ export const toEvalCase = (r: CaseRow): EvalCase => ({
   expectedOutcome: r.expected_outcome,
   access: r.access,
   tags: r.tags,
+  history: r.history ?? [],
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
@@ -240,10 +242,10 @@ export async function addCases(sql: Sql, suite: SuiteRow, cases: EvalCaseInput[]
     for (const c of cases) {
       const [row] = await tx<CaseRow[]>`
         INSERT INTO eval_cases (id, suite_id, tenant_id, question, expected_answer, must_include, must_not_include,
-                                expected_sources, expected_outcome, access, tags)
+                                expected_sources, expected_outcome, access, tags, history)
         VALUES (${newId("evc")}, ${suite.id}, ${suite.tenant_id}, ${c.question}, ${c.expectedAnswer},
                 ${tx.json(c.mustInclude)}, ${tx.json(c.mustNotInclude)}, ${tx.json(c.expectedSources)},
-                ${c.expectedOutcome}, ${tx.array(c.access)}, ${tx.json(c.tags)})
+                ${c.expectedOutcome}, ${tx.array(c.access)}, ${tx.json(c.tags)}, ${tx.json(c.history as never)})
         RETURNING *`;
       out.push(row!);
     }
@@ -264,12 +266,13 @@ export async function updateCase(sql: Sql, suiteId: string, caseId: string, patc
     expectedOutcome: patch.expectedOutcome !== undefined ? patch.expectedOutcome : cur.expected_outcome,
     access: patch.access ?? cur.access,
     tags: patch.tags ?? cur.tags,
+    history: patch.history ?? cur.history,
   };
   const [row] = await sql<CaseRow[]>`
     UPDATE eval_cases SET question = ${n.question}, expected_answer = ${n.expectedAnswer},
       must_include = ${sql.json(n.mustInclude)}, must_not_include = ${sql.json(n.mustNotInclude)},
       expected_sources = ${sql.json(n.expectedSources)}, expected_outcome = ${n.expectedOutcome},
-      access = ${sql.array(n.access)}, tags = ${sql.json(n.tags)}, updated_at = now()
+      access = ${sql.array(n.access)}, tags = ${sql.json(n.tags)}, history = ${sql.json(n.history as never)}, updated_at = now()
     WHERE suite_id = ${suiteId} AND id = ${caseId} RETURNING *`;
   return row ?? null;
 }
@@ -468,7 +471,7 @@ export async function runEvalJob(deps: EvalDeps, job: JobRow): Promise<void> {
         let error: string | null = null;
         const signal = AbortSignal.timeout(CASE_TIMEOUT_MS);
         try {
-          r = await answerOnce(deps, { tenantId: run.tenant_id, assistant, question: c.question, access: c.access, signal });
+          r = await answerOnce(deps, { tenantId: run.tenant_id, assistant, question: c.question, access: c.access, history: c.history ?? [], signal });
         } catch (err) {
           error = signal.aborted ? "timed out" : ((err as Error).message ?? String(err)).slice(0, 500);
         }

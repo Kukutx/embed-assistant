@@ -20,6 +20,15 @@ export const DEFAULT_HANDOFF_MESSAGE =
   "I've passed this conversation to our team. Someone will get back to you as soon as possible.";
 
 /** "Talk to a person". The handoff itself is delivered through the `handoff.requested` webhook. */
+/** How answers sound. Applied as rules in the system prompt, on top of the instructions. */
+export const AnswerStyle = z.object({
+  tone: z.enum(["neutral", "friendly", "formal"]).default("neutral"),
+  /** short: a few sentences; medium: complete but compact; detailed: thorough, with steps and examples. */
+  length: z.enum(["short", "medium", "detailed"]).default("medium"),
+});
+export type AnswerStyle = z.infer<typeof AnswerStyle>;
+export const DEFAULT_STYLE: AnswerStyle = { tone: "neutral", length: "medium" };
+
 export const HandoffConfig = z.object({
   enabled: z.boolean(),
   /** Shown to the visitor after a handoff. */
@@ -100,6 +109,9 @@ export const Assistant = z.object({
    * conversations. Users see and erase them in the widget; never applies to anonymous visitors.
    */
   memory: z.boolean(),
+  /** Playbooks (step-by-step procedures) the assistant follows when a request matches one. */
+  playbookIds: z.array(Id),
+  style: AnswerStyle,
   version: z.number().int(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
@@ -127,6 +139,8 @@ const AssistantFields = {
   redactPii: z.boolean(),
   guardrails: GuardrailConfig,
   memory: z.boolean(),
+  playbookIds: z.array(Id).max(50),
+  style: AnswerStyle,
 };
 
 export const AssistantInput = z.object({
@@ -149,6 +163,8 @@ export const AssistantInput = z.object({
   redactPii: AssistantFields.redactPii.default(false),
   guardrails: GuardrailConfig.default(DEFAULT_GUARDRAILS),
   memory: AssistantFields.memory.default(false),
+  playbookIds: AssistantFields.playbookIds.default([]),
+  style: AnswerStyle.default(DEFAULT_STYLE),
   changeNote: z.string().trim().max(300).optional(),
 });
 export type AssistantInput = z.infer<typeof AssistantInput>;
@@ -791,6 +807,8 @@ const EvalCaseFields = {
   /** Access groups the simulated visitor has (besides `public`), for restricted knowledge. */
   access: z.array(AccessTag).max(20),
   tags: z.array(z.string().trim().min(1).max(40)).max(10),
+  /** Earlier turns of the conversation, oldest first, to test follow-up questions (multi-turn cases). */
+  history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().trim().min(1).max(8000) })).max(20),
 };
 export const EvalCaseInput = z.object({
   question: EvalCaseFields.question,
@@ -801,6 +819,7 @@ export const EvalCaseInput = z.object({
   expectedOutcome: EvalCaseFields.expectedOutcome.default(null),
   access: EvalCaseFields.access.default([]),
   tags: EvalCaseFields.tags.default([]),
+  history: EvalCaseFields.history.default([]),
 });
 export type EvalCaseInput = z.infer<typeof EvalCaseInput>;
 export const EvalCasePatch = z.object(EvalCaseFields).partial();
@@ -972,3 +991,37 @@ export const RunTrace = z.object({
 });
 export type RunTrace = z.infer<typeof RunTrace>;
 export const RunTraceList = z.object({ items: z.array(RunTrace) });
+
+// ---------------------------------------------------------------------------
+// Playbooks
+// ---------------------------------------------------------------------------
+
+/**
+ * A procedure written in plain language (refunds, onboarding, troubleshooting a device).
+ * The model sees each playbook's name and description, and reads the steps only when a
+ * request matches, so many playbooks cost little context.
+ */
+export const Playbook = z.object({
+  id: Id,
+  /** Identifier the model uses to open it, e.g. `refund_request`. */
+  name: z.string(),
+  title: z.string(),
+  /** When to use it, for the model. Be specific. */
+  description: z.string(),
+  /** The steps, conditions and wording to follow. Markdown. May refer to tools by name. */
+  instructions: z.string(),
+  enabled: z.boolean(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type Playbook = z.infer<typeof Playbook>;
+const PlaybookFields = {
+  name: z.string().regex(/^[a-z][a-z0-9_-]{1,63}$/, "lowercase letters, digits, _ and -, starting with a letter"),
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(10).max(1000),
+  instructions: z.string().trim().min(1).max(20000),
+  enabled: z.boolean(),
+};
+export const PlaybookInput = z.object({ ...PlaybookFields, enabled: PlaybookFields.enabled.default(true) });
+export type PlaybookInput = z.infer<typeof PlaybookInput>;
+export const PlaybookPatch = z.object(PlaybookFields).partial();

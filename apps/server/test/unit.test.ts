@@ -236,3 +236,13 @@ describe("run traces", () => {
     expect(trace.timeline.at(-1)).toEqual({ seq: 11, type: "message.completed", atMs: 1490 });
   });
 });
+
+describe("assistant versions", () => {
+  it("does not report fields added by later releases as changes", async () => {
+    const { changedFields } = await import("../src/assistants/versions.js");
+    const old = { name: "Help", instructions: "", modelAlias: "standard", greeting: "Hi", suggestions: [], placeholder: null, disclaimer: null, sourceIds: [], groundedOnly: true, actionIds: [], mcpServerIds: [], handoff: { enabled: false, message: "x", url: null, label: null }, followUps: true, queryRewrite: true, agenticSearch: true, clientTools: true, redactPii: false };
+    const now = { ...old, guardrails: {}, memory: false, playbookIds: [], style: { tone: "neutral", length: "medium" } };
+    expect(changedFields(old, now)).toEqual([]);
+    expect(changedFields(old, { ...now, memory: true, instructions: "Be brief." })).toEqual(["instructions", "memory"]);
+  });
+});

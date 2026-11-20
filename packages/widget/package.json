@@ -1,6 +1,6 @@
 {
   "name": "@embed-assistant/widget",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Framework-agnostic chat widget for embed-assistant: one script tag, Shadow DOM, streaming, accessible.",
   "license": "Apache-2.0",
   "type": "module",

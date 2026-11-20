@@ -1,3 +1,5 @@
+import { FORGET_TOOL, REMEMBER_TOOL } from "../../memory/memories.js";
+import { PLAYBOOK_TOOL } from "../../playbooks/playbooks.js";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import {
@@ -47,7 +49,7 @@ import type { AppEnv, Services } from "../env.js";
 
 const tid = (c: Context<AppEnv>) => c.get("tenantId");
 const Days = z.object({ days: z.coerce.number().int().min(1).max(365).default(30) });
-const RESERVED_TOOL_NAMES = new Set([SEARCH_TOOL, HANDOFF_TOOL]);
+const RESERVED_TOOL_NAMES = new Set([SEARCH_TOOL, HANDOFF_TOOL, PLAYBOOK_TOOL, REMEMBER_TOOL, FORGET_TOOL]);
 
 const toKey = (r: KeyRow): ApiKey => ({
   id: r.id,

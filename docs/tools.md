@@ -12,9 +12,42 @@ Each run is a short agent loop (at most 6 model steps). On every step the model 
 | HTTP actions | Your API, called by the server | Attaching actions to the assistant (`actionIds`) |
 | Page tools | The visitor's browser | `EmbedAssistant.registerTool(...)` and the assistant setting *page tools* |
 | `handoff_to_human` | Server (records the request, sends the webhook) | Assistant setting *handoff* |
+| `open_playbook` | Server (returns a playbook's steps) | Attaching playbooks to the assistant (`playbookIds`), see [Playbooks](#playbooks) |
+| `remember`, `forget` | Server (the signed-in user's memory) | Assistant setting *memory*, see [identity.md](identity.md#long-term-memory) |
 | Remote MCP tools (`<server>__<tool>`) | A remote MCP server | Attaching MCP servers to the assistant (`mcpServerIds`), see [mcp.md](mcp.md) |
 
 Tool arguments are validated against the tool's JSON Schema before anything runs; invalid calls go back to the model as errors. Tool calls appear in the event stream (`tool.started`, `tool.completed`) so any UI can show progress. Tool calling works with Claude and with any OpenAI-compatible model that supports function calling. The offline extractive mode never calls tools.
+
+## Playbooks
+
+A playbook is a procedure written in plain language: how to handle a refund,
+reset a password, troubleshoot a device, qualify a sales lead. It has a
+`name` (what the model uses, e.g. `refund_request`), a `description` (when to
+use it) and the steps (`instructions`, Markdown, up to 20,000 characters).
+
+```bash
+curl -X POST $BASE/v1/admin/playbooks -H "authorization: Bearer $KEY" -H 'content-type: application/json' -d '{
+  "name": "refund_request", "title": "Refunds",
+  "description": "When a customer asks for their money back for an order.",
+  "instructions": "1. Ask for the order number if you do not have it.\n2. Look it up with get_order_status.\n3. Delivered more than 30 days ago: explain the policy and offer store credit.\n4. Otherwise call create_refund and confirm the amount.\n5. Upset customer or more than 500 EUR: hand off to a person."
+}'
+curl -X PATCH $BASE/v1/admin/assistants/ast_... -H "authorization: Bearer $KEY" -H 'content-type: application/json' -d '{"playbookIds": ["pbk_..."]}'
+```
+
+Only the names and descriptions of an assistant's playbooks are in its
+system prompt. When a request matches one, the model calls `open_playbook`
+and gets the steps, then follows them: asking for missing details, calling
+the actions they name, handing off when they say so. So an assistant can
+carry dozens of playbooks without slowing down every answer, and the steps
+can be long. Playbooks are written by the site owner and take precedence
+over the model's habits, but never over the safety rules; they cannot enable
+a tool the assistant does not have.
+
+Playbooks are versioned with the assistant (`playbookIds`), run in
+evaluations (cases can test that a procedure is followed, including over
+several turns, see [quality.md](quality.md)), and show up in the answer
+inspector as `open_playbook` calls. Disabled playbooks are not offered;
+deleting one detaches it from every assistant.
 
 ## HTTP actions
 

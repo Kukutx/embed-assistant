@@ -55,6 +55,7 @@ Rules:
 | `/v1/admin/assistants/{id}/versions` (+ `/{version}`, `/{version}/restore`) | Version history: every saved configuration, who saved it, the change note and which fields changed; restore saves an old configuration as a new version |
 | `/v1/admin/sources` (+ `PATCH`, `/sync`, `/documents`, `/files` multipart upload) | Knowledge |
 | `/v1/admin/actions` (+ `/test`) | HTTP tools |
+| `/v1/admin/playbooks` | Procedures the assistant follows ([tools.md](tools.md#playbooks)) |
 | `/v1/admin/mcp-servers` (+ `/refresh`, `/test`) | Remote MCP servers as tools ([mcp.md](mcp.md)) |
 | `/v1/admin/webhooks` (+ `/test`, `/rotate-secret`, `/deliveries`) | Webhooks |
 | `/v1/admin/conversations` (+ `?handoff=waiting\|active\|resolved`, `DELETE`, `/export?days=` as NDJSON) | Transcripts and the handoff inbox |

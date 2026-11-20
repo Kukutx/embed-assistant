@@ -16,7 +16,7 @@ import type {
   Widget,
   WidgetInput,
 } from "@embed-assistant/protocol";
-import { DEFAULT_GUARDRAILS, GuardrailConfig } from "@embed-assistant/protocol";
+import { AnswerStyle, DEFAULT_GUARDRAILS, DEFAULT_STYLE, GuardrailConfig } from "@embed-assistant/protocol";
 import { iso, isoOrNull } from "../lib/time.js";
 import { newId } from "../lib/ids.js";
 import type { Sql } from "./pool.js";
@@ -50,12 +50,20 @@ export interface AssistantRow {
   /** Stored partially; read through guardrailsOf() to apply defaults. */
   guardrails: Partial<GuardrailConfig> | null;
   memory: boolean;
+  playbook_ids: string[];
+  /** Stored partially; read through styleOf() to apply defaults. */
+  style: Partial<AnswerStyle> | null;
   version: number;
   created_at: Date;
   updated_at: Date;
 }
 
 /** Guardrail settings with defaults filled in (older rows store `{}`). */
+export function styleOf(r: Pick<AssistantRow, "style">): AnswerStyle {
+  const parsed = AnswerStyle.safeParse(r.style ?? {});
+  return parsed.success ? parsed.data : { ...DEFAULT_STYLE };
+}
+
 export function guardrailsOf(r: Pick<AssistantRow, "guardrails">): GuardrailConfig {
   const parsed = GuardrailConfig.safeParse(r.guardrails ?? {});
   return parsed.success ? parsed.data : DEFAULT_GUARDRAILS;
@@ -163,6 +171,8 @@ export const toAssistant = (r: AssistantRow): Assistant => ({
   redactPii: r.redact_pii,
   guardrails: guardrailsOf(r),
   memory: r.memory,
+  playbookIds: r.playbook_ids ?? [],
+  style: styleOf(r),
   version: r.version,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
@@ -306,12 +316,13 @@ export async function createAssistant(sql: Tx, tenantId: string, input: Assistan
   const rows = await sql<AssistantRow[]>`
     INSERT INTO assistants (id, tenant_id, name, instructions, model_alias, greeting, suggestions,
                             placeholder, disclaimer, source_ids, grounded_only, action_ids, mcp_server_ids, handoff,
-                            follow_ups, query_rewrite, agentic_search, client_tools, redact_pii, guardrails, memory)
+                            follow_ups, query_rewrite, agentic_search, client_tools, redact_pii, guardrails, memory, playbook_ids, style)
     VALUES (${id}, ${tenantId}, ${input.name}, ${input.instructions}, ${input.modelAlias}, ${input.greeting},
             ${sql.json(input.suggestions)}, ${input.placeholder}, ${input.disclaimer},
             ${sql.array(input.sourceIds)}, ${input.groundedOnly}, ${sql.array(input.actionIds)}, ${sql.array(input.mcpServerIds)},
             ${sql.json(input.handoff as never)}, ${input.followUps}, ${input.queryRewrite}, ${input.agenticSearch},
-            ${input.clientTools}, ${input.redactPii}, ${sql.json(input.guardrails as never)}, ${input.memory})
+            ${input.clientTools}, ${input.redactPii}, ${sql.json(input.guardrails as never)}, ${input.memory},
+            ${sql.array(input.playbookIds)}, ${sql.json(input.style as never)})
     RETURNING *`;
   await recordVersion(sql, rows[0]!, meta);
   return rows[0]!;
@@ -346,6 +357,8 @@ export async function updateAssistant(
     redactPii: patch.redactPii ?? current.redact_pii,
     guardrails: patch.guardrails ?? guardrailsOf(current),
     memory: patch.memory ?? current.memory,
+    playbookIds: patch.playbookIds ?? current.playbook_ids,
+    style: patch.style ?? styleOf(current),
   };
   const rows = await sql<AssistantRow[]>`
     UPDATE assistants SET
@@ -356,6 +369,7 @@ export async function updateAssistant(
       action_ids = ${sql.array(next.actionIds)}, mcp_server_ids = ${sql.array(next.mcpServerIds)}, handoff = ${sql.json(next.handoff as never)},
       follow_ups = ${next.followUps}, query_rewrite = ${next.queryRewrite}, agentic_search = ${next.agenticSearch},
       client_tools = ${next.clientTools}, redact_pii = ${next.redactPii}, guardrails = ${sql.json(next.guardrails as never)}, memory = ${next.memory},
+      playbook_ids = ${sql.array(next.playbookIds)}, style = ${sql.json(next.style as never)},
       version = version + 1, updated_at = now()
     WHERE tenant_id = ${tenantId} AND id = ${id}
     RETURNING *`;

@@ -18,6 +18,7 @@ import { mcpRoutes } from "../mcp/server.js";
 import { adminMcpRoutes } from "./routes/adminMcp.js";
 import { chatRoutes } from "./routes/chat.js";
 import { memoryRoutes } from "./routes/memory.js";
+import { playbookRoutes } from "./routes/playbooks.js";
 import { opsRoutes } from "./routes/ops.js";
 import { publicRoutes } from "./routes/public.js";
 import { serveDir } from "./static.js";
@@ -96,6 +97,7 @@ export function createApp(s: Services): Hono<AppEnv> {
   authRoutes(app, s);
   inboxRoutes(app, s);
   evalRoutes(app, s);
+  playbookRoutes(app, s);
   platformRoutes(app, s);
   mcpRoutes(app, s);
 

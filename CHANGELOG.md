@@ -2,6 +2,17 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.11
+
+Procedures and style.
+
+- **Playbooks**: procedures in plain language (refunds, password resets, troubleshooting) attached to assistants with `playbookIds`. The model sees only names and descriptions and reads the steps on demand with the built-in `open_playbook` tool, so many long playbooks cost little context. `/v1/admin/playbooks`, a *Playbooks* page in the console, versioned with the assistant, run in evaluations, visible in the answer inspector. See [docs/tools.md](docs/tools.md#playbooks).
+- **Answer style** per assistant: `style.tone` (neutral, friendly, formal) and `style.length` (short, medium, detailed).
+- **Multi-turn evaluation cases**: `history` gives earlier turns, to test follow-up questions and steps in the middle of a procedure. The console takes `User:` / `Assistant:` lines.
+- Built-in tool names (`open_playbook`, `remember`, `forget`) are reserved for actions.
+- Version history no longer lists fields added by a later release as changes.
+- Console: the tool and playbook name fields work in browsers that compile input patterns with the `v` flag.
+
 ## 1.0.10
 
 Personal and hands-free.

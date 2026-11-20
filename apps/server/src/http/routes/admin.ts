@@ -82,7 +82,14 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
   const { sql } = s;
   const A = "Admin";
 
-  async function validateAssistantRefs(tenantId: string, input: { modelAlias?: string; sourceIds?: string[]; actionIds?: string[]; mcpServerIds?: string[] }) {
+  async function validateAssistantRefs(tenantId: string, input: { modelAlias?: string; sourceIds?: string[]; actionIds?: string[]; mcpServerIds?: string[]; playbookIds?: string[] }) {
+    if (input.playbookIds?.length) {
+      const rows = await sql<{ id: string }[]>`
+        SELECT id FROM playbooks WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(input.playbookIds)})`;
+      const found = new Set(rows.map((r) => r.id));
+      const missing = input.playbookIds.filter((id) => !found.has(id));
+      if (missing.length) throw badRequest("unknown playbooks", { missing });
+    }
     if (input.mcpServerIds?.length) {
       const rows = await sql<{ id: string }[]>`
         SELECT id FROM mcp_servers WHERE tenant_id = ${tenantId} AND id = ANY(${sql.array(input.mcpServerIds)})`;
@@ -170,12 +177,21 @@ export function adminRoutes(app: Hono<AppEnv>, s: Services, widgets: WidgetCache
       if (!s.models.hasAlias(cfg.modelAlias)) {
         throw badRequest(`version ${n} uses the model alias "${cfg.modelAlias}", which is no longer configured`, { aliases: s.models.describe().map((m) => m.alias) });
       }
-      const existing = async (table: "knowledge_sources" | "actions" | "mcp_servers", ids: string[]) =>
+      const existing = async (table: "knowledge_sources" | "actions" | "mcp_servers" | "playbooks", ids: string[]) =>
         ids.length ? new Set((await sql<{ id: string }[]>`SELECT id FROM ${sql(table)} WHERE tenant_id = ${tid(c)} AND id = ANY(${sql.array(ids)})`).map((r) => r.id)) : new Set<string>();
-      const [srcs, acts, mcps] = await Promise.all([existing("knowledge_sources", cfg.sourceIds), existing("actions", cfg.actionIds), existing("mcp_servers", cfg.mcpServerIds)]);
-      const next = { ...cfg, sourceIds: cfg.sourceIds.filter((x) => srcs.has(x)), actionIds: cfg.actionIds.filter((x) => acts.has(x)), mcpServerIds: cfg.mcpServerIds.filter((x) => mcps.has(x)) };
-      const dropped = cfg.sourceIds.length + cfg.actionIds.length + cfg.mcpServerIds.length - next.sourceIds.length - next.actionIds.length - next.mcpServerIds.length;
-      const note = body.note ?? `Restored version ${n}${dropped ? ` (left out ${dropped} deleted source/action/MCP reference${dropped > 1 ? "s" : ""})` : ""}`;
+      const [srcs, acts, mcps, pbks] = await Promise.all([
+        existing("knowledge_sources", cfg.sourceIds), existing("actions", cfg.actionIds), existing("mcp_servers", cfg.mcpServerIds), existing("playbooks", cfg.playbookIds),
+      ]);
+      const next = {
+        ...cfg,
+        sourceIds: cfg.sourceIds.filter((x) => srcs.has(x)),
+        actionIds: cfg.actionIds.filter((x) => acts.has(x)),
+        mcpServerIds: cfg.mcpServerIds.filter((x) => mcps.has(x)),
+        playbookIds: cfg.playbookIds.filter((x) => pbks.has(x)),
+      };
+      const count = (x: typeof cfg) => x.sourceIds.length + x.actionIds.length + x.mcpServerIds.length + x.playbookIds.length;
+      const dropped = count(cfg) - count(next);
+      const note = body.note ?? `Restored version ${n}${dropped ? ` (left out ${dropped} deleted reference${dropped > 1 ? "s" : ""})` : ""}`;
       const a = await updateAssistant(sql, tid(c), param(c, "id"), next, { by: actorName(c), note });
       if (!a) throw notFound("assistant");
       return c.json(toAssistant(a));

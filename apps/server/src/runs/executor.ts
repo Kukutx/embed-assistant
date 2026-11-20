@@ -3,7 +3,7 @@ import type { Logger } from "pino";
 import type { ClientToolDef, PageContext } from "@embed-assistant/protocol";
 import { listActions } from "../actions/actions.js";
 import type { Sql } from "../db/pool.js";
-import { finishMessage, guardrailsOf, insertMessage, toMessage, type AssistantRow, type MessageRow } from "../db/store.js";
+import { finishMessage, guardrailsOf, insertMessage, styleOf, toMessage, type AssistantRow, type MessageRow } from "../db/store.js";
 import { retrieve } from "../knowledge/retrieve.js";
 import { decrypt } from "../lib/crypto.js";
 import { newId } from "../lib/ids.js";
@@ -16,6 +16,7 @@ import { auxAlias, contextualQuery, suggestFollowUps } from "./assist.js";
 import { knowledgeSearch } from "./answer.js";
 import { AnswerWatch, checkQuestion, TermMatcher, type GuardrailVerdict } from "./guardrails.js";
 import { listMemories, memorySession, touchMemories } from "../memory/memories.js";
+import { listPlaybooks, openPlaybook, PLAYBOOK_TOOL, playbookToolDef } from "../playbooks/playbooks.js";
 import { requestHandoff } from "./handoff.js";
 import { buildSystemPrompt, buildUserTurn, extractCitations, toCitation, trimHistory } from "./prompt.js";
 import {
@@ -253,6 +254,16 @@ export class RunExecutor {
         { alias: aux, question: job.userMessage.content, previous: [...history].reverse().find((t) => t.role === "user")?.content, guardrails: g, terms, signal },
       );
 
+      // Playbooks the model may open, loaded while retrieval runs.
+      const playbooksLoad =
+        a.playbook_ids.length && this.models.hasLanguageModel(a.model_alias)
+          ? listPlaybooks(sql, job.tenantId, a.playbook_ids)
+              .then((rows) => rows.filter((r) => r.enabled))
+              .catch((err: unknown) => {
+                this.log.warn({ err, runId: job.runId }, "could not load playbooks");
+                return [];
+              })
+          : null;
       // Long-term memory (signed-in users only), loaded while retrieval runs.
       const memoryRows =
         a.memory && job.subject.kind === "user" && this.models.hasLanguageModel(a.model_alias)
@@ -303,6 +314,16 @@ export class RunExecutor {
         return `The team has been notified. The user will see this message: "${r.message}"${r.url ? ` and a link to ${r.url}` : ""}. Do not repeat the link.`;
       };
       const tools = blocked ? new Map<string, RunTool>() : await this.buildTools(job, onSearch, onHandoff);
+      const playbooks = playbooksLoad && !blocked ? await playbooksLoad : [];
+      if (playbooks.length && !tools.has(PLAYBOOK_TOOL)) {
+        tools.set(PLAYBOOK_TOOL, {
+          def: playbookToolDef(playbooks),
+          title: "Reading the playbook",
+          kind: "builtin",
+          confirm: false,
+          run: async (input) => openPlaybook(playbooks, String(input.name ?? "")),
+        });
+      }
       let memory: string[] | undefined;
       if (memoryRows && !blocked) {
         const mem = memorySession(sql, { tenantId: job.tenantId, subjectId: job.subject.id, conversationId: job.conversationId, redact: a.redact_pii, rows: await memoryRows });
@@ -328,6 +349,8 @@ export class RunExecutor {
           ? { search: tools.has(SEARCH_TOOL), handoff: tools.has(HANDOFF_TOOL), actions: [...tools.values()].some((t) => t.kind !== "builtin") }
           : undefined,
         memory: memory !== undefined,
+        style: styleOf(a),
+        playbooks,
       });
       const transcript: ChatTurn[] = [
         ...history,

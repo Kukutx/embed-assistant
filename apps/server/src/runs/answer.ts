@@ -6,7 +6,7 @@
  */
 import type { Citation, GuardrailKind } from "@embed-assistant/protocol";
 import type { Logger } from "pino";
-import { guardrailsOf, type AssistantRow } from "../db/store.js";
+import { guardrailsOf, styleOf, type AssistantRow } from "../db/store.js";
 import type { Sql } from "../db/pool.js";
 import { retrieve } from "../knowledge/retrieve.js";
 import { metrics } from "../lib/metrics.js";
@@ -16,6 +16,7 @@ import { auxAlias, contextualQuery } from "./assist.js";
 import { AnswerWatch, checkQuestion, TermMatcher } from "./guardrails.js";
 import { buildSystemPrompt, buildUserTurn, extractCitations } from "./prompt.js";
 import { HANDOFF_TOOL, handoffToolDef, SEARCH_TOOL, searchToolDef } from "./tools.js";
+import { listPlaybooks, openPlaybook, PLAYBOOK_TOOL, playbookToolDef } from "../playbooks/playbooks.js";
 
 const MAX_STEPS = 4;
 const REFUSAL_TEXT = "Sorry, I can't help with that request.";
@@ -108,15 +109,20 @@ export async function answerOnce(deps: AnswerDeps, p: AnswerInput): Promise<Answ
 
   const search = knowledgeSearch(sources, find);
   const canUseTools = deps.models.hasLanguageModel(a.model_alias);
+  // Playbooks only read text, so they run here too (evaluations test them).
+  const playbooks = canUseTools && a.playbook_ids.length ? (await listPlaybooks(deps.sql, p.tenantId, a.playbook_ids)).filter((r) => r.enabled) : [];
   const tools = [
     ...(canUseTools && a.agentic_search && a.source_ids.length ? [searchToolDef] : []),
     ...(canUseTools && a.handoff.enabled ? [handoffToolDef] : []),
+    ...(playbooks.length ? [playbookToolDef(playbooks)] : []),
   ];
   const system = buildSystemPrompt({
     assistantName: a.name,
     instructions: a.instructions,
     groundedOnly: a.grounded_only,
     tools: tools.length ? { search: tools.includes(searchToolDef), handoff: tools.includes(handoffToolDef), actions: false } : undefined,
+    style: styleOf(a),
+    playbooks,
   });
   const transcript: ChatTurn[] = [...history, { role: "user", content: buildUserTurn({ question: p.question, sources, context: undefined }) }];
 
@@ -162,7 +168,8 @@ export async function answerOnce(deps: AnswerDeps, p: AnswerInput): Promise<Answ
       else if (call.name === HANDOFF_TOOL) {
         handoff = true;
         content = `The team has been notified. The user will see this message: "${a.handoff.message}". Do not repeat any link.`;
-      } else content = `Unknown tool "${call.name}".`;
+      } else if (call.name === PLAYBOOK_TOOL) content = openPlaybook(playbooks, String(call.input.name ?? "")).content;
+      else content = `Unknown tool "${call.name}".`;
       results.push({ callId: call.id, name: call.name, content, isError: false });
     }
     transcript.push({ role: "tool", results });

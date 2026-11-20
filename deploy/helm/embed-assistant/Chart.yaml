@@ -2,8 +2,8 @@ apiVersion: v2
 name: embed-assistant
 description: Embeddable, model-agnostic AI assistant (server, admin console and widget)
 type: application
-version: 1.0.10
-appVersion: "1.0.10"
+version: 1.0.11
+appVersion: "1.0.11"
 home: https://github.com/Kukutx/embed-assistant
 sources:
   - https://github.com/Kukutx/embed-assistant

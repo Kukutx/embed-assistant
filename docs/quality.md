@@ -66,6 +66,7 @@ Each case can check any combination of:
 | `expectedOutcome` | `answer`, `refuse` (a guardrail or the model declined) or `handoff` (the model asked for a person). |
 | `expectedAnswer` | A model judge scores the answer against this reference from 1 to 5 (correctness first, then completeness); 4 or 5 passes. Uses the `judge` alias if you define one, else `fast`, else the assistant's alias. Without a language model (or with `judge: false`) the share of the reference's key terms found in the answer is used instead (60% passes). |
 | `access` | Access groups the simulated visitor has, for restricted knowledge. |
+| `history` | Earlier turns, oldest first (`[{"role": "user", "content": …}, {"role": "assistant", "content": …}]`, up to 20), so the case tests a follow-up question or a step in the middle of a playbook. |
 
 A case passes when all its checks pass; its score is the mean of the check
 scores (0..1). A case with no checks passes when there is an answer. The run's

@@ -14,9 +14,17 @@ interface VersionRow {
 
 const stable = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort()) : x));
 
-/** Top-level fields whose values differ. */
+/** A saved config with today's defaults for fields that did not exist when it was saved. */
+function normalized(c: Record<string, unknown>): Record<string, unknown> {
+  const r = AssistantConfig.safeParse(withDefaults(c));
+  return r.success ? r.data : c;
+}
+
+/** Top-level fields whose values differ (fields added by later releases do not count as changes). */
 export function changedFields(before: Record<string, unknown> | null, after: Record<string, unknown>): string[] {
   if (!before) return [];
+  before = normalized(before);
+  after = normalized(after);
   const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
   return keys.filter((k) => stable(before[k]) !== stable(after[k])).sort();
 }
@@ -55,7 +63,7 @@ export async function getVersion(sql: Sql, tenantId: string, assistantId: string
 }
 
 function withDefaults(c: Record<string, unknown>): Record<string, unknown> {
-  return { guardrails: {}, memory: false, ...c };
+  return { guardrails: {}, memory: false, playbookIds: [], style: {}, ...c };
 }
 
 /** An assistant row as it was at a saved version (for evaluating that version). */
@@ -81,6 +89,8 @@ export function rowAtVersion(current: AssistantRow, config: AssistantConfig, ver
     redact_pii: config.redactPii,
     guardrails: config.guardrails,
     memory: config.memory,
+    playbook_ids: config.playbookIds,
+    style: config.style,
     version,
   };
 }

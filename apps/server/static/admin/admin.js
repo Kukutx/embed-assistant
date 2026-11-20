@@ -161,6 +161,7 @@ const VIEWS = {
   widgets: { title: "Widgets", render: widgets, perm: "config:read" },
   knowledge: { title: "Knowledge", render: knowledge, perm: "config:read" },
   actions: { title: "Actions", render: actions, perm: "config:read" },
+  playbooks: { title: "Playbooks", render: playbooks, perm: "config:read" },
   mcp: { title: "MCP servers", render: mcpServers, perm: "config:read" },
   conversations: { title: "Conversations", render: conversations, perm: "conversations:read" },
   evals: { title: "Evaluations", render: evals, perm: "config:read" },
@@ -214,14 +215,15 @@ async function overview(main) {
 }
 
 async function assistants(main) {
-  const [list, sources, models, actionList, mcpList] = await Promise.all([
+  const [list, sources, models, actionList, mcpList, playbookList] = await Promise.all([
     api("GET", "/assistants"),
     api("GET", "/sources"),
     api("GET", "/models"),
     api("GET", "/actions"),
     api("GET", "/mcp-servers"),
+    api("GET", "/playbooks").then((r) => r.items),
   ]);
-  const edit = (a) => assistantForm(a, sources, models, actionList, mcpList, () => route());
+  const edit = (a) => assistantForm(a, sources, models, actionList, mcpList, () => route(), playbookList);
   main.append(
     h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn primary", onclick: () => edit(null), text: "New assistant" })),
     h(
@@ -248,7 +250,7 @@ async function assistants(main) {
                     "td",
                     { class: "row" },
                     h("button", { class: "btn", onclick: () => edit(a), text: "Edit" }),
-                    h("button", { class: "btn", onclick: () => versionHistory(a, { sources, actionList, mcpList }), text: "History" }),
+                    h("button", { class: "btn", onclick: () => versionHistory(a, { sources, actionList, mcpList, playbookList }), text: "History" }),
                     h("button", {
                       class: "btn danger",
                       text: "Delete",
@@ -268,7 +270,7 @@ async function assistants(main) {
   );
 }
 
-function assistantForm(a, sources, models, actionList, mcpList, done) {
+function assistantForm(a, sources, models, actionList, mcpList, done, playbookList = []) {
   const f = {
     name: h("input", { value: a?.name ?? "", required: true, maxlength: 100 }),
     instructions: h("textarea", { value: a?.instructions ?? "", rows: 6, placeholder: "Tone, scope, what to do when unsure…" }),
@@ -295,7 +297,15 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
     checkAnswers: h("input", { type: "checkbox", checked: a?.guardrails?.checkAnswers ?? true }),
     refusalMessage: h("input", { value: a?.guardrails?.refusalMessage ?? "Sorry, I can't help with that. Is there something else I can help you with?", maxlength: 1000 }),
     changeNote: h("input", { maxlength: 500, placeholder: "What changed and why (optional)" }),
+    tone: h("select", {}, [["neutral", "Neutral"], ["friendly", "Friendly"], ["formal", "Formal"]].map(([v, t]) => h("option", { value: v, text: t }))),
+    length: h("select", {}, [["short", "Short"], ["medium", "Medium"], ["detailed", "Detailed"]].map(([v, t]) => h("option", { value: v, text: t }))),
   };
+  f.tone.value = a?.style?.tone ?? "neutral";
+  f.length.value = a?.style?.length ?? "medium";
+  const playbookChecks = playbookList.map((x) => {
+    const c = h("input", { type: "checkbox", value: x.id, checked: a?.playbookIds?.includes(x.id) });
+    return h("label", { class: "check" }, c, `${x.title} `, h("code", { text: x.name }), x.enabled ? null : h("span", { class: "badge", text: "disabled" }));
+  });
   const actionChecks = actionList.map((x) => {
     const c = h("input", { type: "checkbox", value: x.id, checked: a?.actionIds?.includes(x.id) });
     return h("label", { class: "check" }, c, `${x.title} `, h("code", { text: x.name }), x.confirm ? h("span", { class: "badge warn", text: "asks first" }) : null, x.enabled ? null : h("span", { class: "badge", text: "disabled" }));
@@ -333,6 +343,8 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
           clientTools: f.clientTools.checked,
           redactPii: f.redactPii.checked,
           memory: f.memory.checked,
+          playbookIds: playbookChecks.map((l) => l.querySelector("input")).filter((c) => c.checked).map((c) => c.value),
+          style: { tone: f.tone.value, length: f.length.value },
           handoff: {
             enabled: f.handoffEnabled.checked,
             message: f.handoffMessage.value.trim() || "I've passed this conversation to our team.",
@@ -368,6 +380,8 @@ function assistantForm(a, sources, models, actionList, mcpList, done) {
     h("label", { class: "check" }, f.groundedOnly, "Answer only from knowledge sources (recommended for support)"),
     h("fieldset", { class: "box" }, h("legend", { text: "Actions (tools)" }), actionChecks.length ? actionChecks : h("span", { class: "muted", text: "No actions yet. Create them under Actions." })),
     h("fieldset", { class: "box" }, h("legend", { text: "MCP servers" }), mcpChecks.length ? mcpChecks : h("span", { class: "muted", text: "None connected. Add them under MCP servers." })),
+    h("fieldset", { class: "box" }, h("legend", { text: "Playbooks" }), playbookChecks.length ? playbookChecks : h("span", { class: "muted", text: "No playbooks yet. Write them under Playbooks." })),
+    h("div", { class: "two" }, field("Tone", f.tone), field("Answer length", f.length)),
     h(
       "fieldset",
       { class: "box" },
@@ -409,12 +423,12 @@ const CONFIG_LABELS = {
   placeholder: "Input placeholder", disclaimer: "Disclaimer", sourceIds: "Knowledge sources", groundedOnly: "Sources only",
   actionIds: "Actions", mcpServerIds: "MCP servers", handoff: "Human handoff", followUps: "Follow-up suggestions",
   queryRewrite: "Query rewriting", agenticSearch: "Extra searches", clientTools: "Page tools", redactPii: "Mask personal data", guardrails: "Guardrails",
-  memory: "Memory",
+  memory: "Memory", playbookIds: "Playbooks", style: "Tone and length",
 };
 
 /** A config value as readable text: ids become names, objects become indented JSON. */
 function configText(key, value, refs) {
-  const named = { sourceIds: refs.sources, actionIds: refs.actionList, mcpServerIds: refs.mcpList }[key];
+  const named = { sourceIds: refs.sources, actionIds: refs.actionList, mcpServerIds: refs.mcpList, playbookIds: refs.playbookList ?? [] }[key];
   if (named) return value.length ? value.map((id) => { const x = named.find((n) => n.id === id); return x ? x.title ?? x.name : `${id} (deleted)`; }).join("\n") : "—";
   if (value === null || value === "") return "—";
   if (typeof value === "boolean") return value ? "on" : "off";
@@ -1187,7 +1201,7 @@ async function actions(main) {
 
 function actionForm(x) {
   const f = {
-    name: h("input", { value: x?.name ?? "", required: true, pattern: "[a-zA-Z][a-zA-Z0-9_-]{0,63}", placeholder: "get_order_status" }),
+    name: h("input", { value: x?.name ?? "", required: true, pattern: "[a-zA-Z][a-zA-Z0-9_\\-]{0,63}", placeholder: "get_order_status" }),
     title: h("input", { value: x?.title ?? "", required: true, placeholder: "Checking your order" }),
     description: h("textarea", { value: x?.description ?? "", rows: 3, required: true, placeholder: "When the model should use it, and what it returns." }),
     method: h("select", {}, ["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => h("option", { value: m, text: m }))),
@@ -1241,6 +1255,96 @@ function actionForm(x) {
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: x ? "Save" : "Create" })),
   );
   const dlg = modal(x ? `Edit ${x.title}` : "New action", form, { wide: true });
+}
+
+// ------------------------------------------------------------------ playbooks
+async function playbooks(main) {
+  const { items } = await api("GET", "/playbooks");
+  const canWrite = allowed("config:write");
+  main.append(
+    h("p", { class: "muted", text: "Procedures in plain language: how to handle a refund, reset a password, troubleshoot a device. The assistant sees each playbook's name and description, reads the steps when a request matches, and follows them (asking for details and using the actions they mention). Attach playbooks to assistants in their settings." }),
+    canWrite ? h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn primary", onclick: () => playbookForm(null), text: "New playbook" })) : "",
+    h(
+      "div",
+      { class: "card" },
+      items.length
+        ? h(
+            "table",
+            {},
+            h("thead", {}, h("tr", {}, ["Playbook", "When to use", "Steps", ""].map((t) => h("th", { text: t })))),
+            h(
+              "tbody",
+              {},
+              items.map((x) =>
+                h(
+                  "tr",
+                  {},
+                  h("td", {}, h("strong", { text: x.title }), h("div", {}, h("code", { text: x.name })), x.enabled ? null : h("span", { class: "badge", text: "disabled" })),
+                  h("td", { class: "small", text: x.description }),
+                  h("td", { class: "small muted", text: `${x.instructions.split("\n").filter((l) => l.trim()).length} lines` }),
+                  h(
+                    "td",
+                    { class: "row" },
+                    h("button", { class: "btn", onclick: () => playbookForm(x), text: canWrite ? "Edit" : "View" }),
+                    canWrite
+                      ? h("button", {
+                          class: "btn danger",
+                          text: "Delete",
+                          onclick: async () => {
+                            if (!confirm(`Delete playbook "${x.title}"? It is removed from every assistant.`)) return;
+                            await api("DELETE", `/playbooks/${x.id}`);
+                            route();
+                          },
+                        })
+                      : null,
+                  ),
+                ),
+              ),
+            ),
+          )
+        : h("p", { class: "muted", text: "No playbooks yet." }),
+    ),
+  );
+}
+
+function playbookForm(x) {
+  const f = {
+    name: h("input", { value: x?.name ?? "", required: true, pattern: "[a-z][a-z0-9_\\-]{1,63}", placeholder: "refund_request" }),
+    title: h("input", { value: x?.title ?? "", required: true, maxlength: 120, placeholder: "Refunds" }),
+    description: h("textarea", { value: x?.description ?? "", rows: 2, required: true, minlength: 10, maxlength: 1000, placeholder: "When a customer asks for their money back for an order." }),
+    instructions: h("textarea", {
+      value: x?.instructions ?? "",
+      rows: 12,
+      required: true,
+      maxlength: 20000,
+      placeholder: "1. Ask for the order number if you don't have it.\n2. Look it up with get_order_status.\n3. If it was delivered more than 30 days ago, explain the policy and offer store credit.\n4. Otherwise, call create_refund and confirm the amount.\n5. If the customer is upset or the amount is over 500 EUR, hand off to a person.",
+    }),
+    enabled: h("input", { type: "checkbox", checked: x?.enabled ?? true }),
+  };
+  const msg = h("div");
+  const form = h(
+    "form",
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const body = { name: f.name.value.trim(), title: f.title.value.trim(), description: f.description.value.trim(), instructions: f.instructions.value.trim(), enabled: f.enabled.checked };
+        try {
+          await api(x ? "PATCH" : "POST", x ? `/playbooks/${x.id}` : "/playbooks", body);
+          dlg.close();
+          route();
+        } catch (err) {
+          msg.replaceChildren(notice(errorText(err), true));
+        }
+      },
+    },
+    h("div", { class: "two" }, field("Name", f.name, "Lowercase, what the model uses to open it."), field("Title", f.title)),
+    field("When to use", f.description, "The model decides from this alone whether the playbook applies. Be specific."),
+    field("Steps", f.instructions, "Plain language or Markdown. Conditions (if…, otherwise…), what to ask, which actions to call, when to hand off."),
+    h("label", { class: "check" }, f.enabled, "Enabled"),
+    msg,
+    allowed("config:write") ? h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", text: x ? "Save" : "Create" })) : "",
+  );
+  const dlg = modal(x ? x.title : "New playbook", form, { wide: true });
 }
 
 function actionTest(x) {
@@ -2049,6 +2153,11 @@ function caseForm(suiteId, c, done) {
     expectedOutcome: h("select", {}, h("option", { value: "", text: "Not checked" }), ["answer", "refuse", "handoff"].map((x) => h("option", { value: x, text: x }))),
     access: h("input", { value: (c?.access ?? []).join(", "), placeholder: "e.g. customers, staff" }),
     tags: h("input", { value: (c?.tags ?? []).join(", ") }),
+    history: h("textarea", {
+      value: (c?.history ?? []).map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`).join("\n"),
+      rows: 3,
+      placeholder: "Optional, for follow-up questions:\nUser: Do you ship to Canada?\nAssistant: Yes, in 5-7 days.",
+    }),
   };
   f.expectedOutcome.value = c?.expectedOutcome ?? "";
   const msg = h("div");
@@ -2068,6 +2177,7 @@ function caseForm(suiteId, c, done) {
             expectedOutcome: f.expectedOutcome.value || null,
             access: csv(f.access.value),
             tags: csv(f.tags.value),
+            history: parseHistory(f.history.value),
           };
           try {
             if (c) await api("PATCH", `/evals/${suiteId}/cases/${c.id}`, body);
@@ -2079,6 +2189,7 @@ function caseForm(suiteId, c, done) {
           }
         },
       },
+      field("Earlier conversation", f.history, "Lines starting with User: or Assistant: (continuation lines join the turn above)."),
       field("Question", f.question),
       field("Reference answer", f.expectedAnswer),
       h("div", { class: "two" }, field("Must include", f.mustInclude), field("Must not include", f.mustNotInclude)),
@@ -2089,6 +2200,17 @@ function caseForm(suiteId, c, done) {
     ),
     { wide: true },
   );
+}
+
+/** "User: …" / "Assistant: …" lines into turns; other lines continue the previous turn. */
+function parseHistory(text) {
+  const turns = [];
+  for (const line of text.split("\n")) {
+    const m = /^\s*(user|visitor|assistant|ai)\s*:\s*(.*)$/i.exec(line);
+    if (m) turns.push({ role: /^(user|visitor)$/i.test(m[1]) ? "user" : "assistant", content: m[2] });
+    else if (turns.length && line.trim()) turns[turns.length - 1].content += `\n${line}`;
+  }
+  return turns.map((t) => ({ ...t, content: t.content.trim() })).filter((t) => t.content);
 }
 
 /** Paste JSON (an array), JSON Lines, or plain questions one per line. */
@@ -2213,6 +2335,7 @@ async function evalSuite(main, id) {
     ...c.expectedSources.map((p) => h("span", { class: "badge", text: `cites ${p}` })),
     c.expectedOutcome ? h("span", { class: "badge warn", text: c.expectedOutcome }) : null,
     ...c.tags.map((t) => h("span", { class: "badge", text: `#${t}` })),
+    c.history?.length ? h("span", { class: "badge", text: `follow-up (${c.history.length} earlier turns)` }) : null,
   ];
   main.append(
     suite.description ? h("p", { class: "muted", text: suite.description }) : "",
