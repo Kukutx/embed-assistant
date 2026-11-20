@@ -404,6 +404,11 @@ describe.skipIf(!DB)("agent features (postgres)", () => {
     expect(ins.handoffs).toBe(2);
     expect(ins.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: "get_order_status", calls: 2, errors: 1 })]));
     expect(ins.topQuestions.length).toBeGreaterThan(0);
+    // Handed-off conversations are not counted as resolved by the assistant.
+    const r = ins.resolution;
+    expect(r.handedOff).toBeGreaterThanOrEqual(1); // a handoff before any answer is not an engaged conversation
+    expect(r.resolved).toBeLessThanOrEqual(r.engaged - r.handedOff);
+    expect(r.rate).toBeCloseTo(r.resolved / r.engaged);
   });
 
   it("scopes API keys", async () => {

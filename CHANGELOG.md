@@ -2,6 +2,16 @@
 
 All notable changes are documented here. The project follows [Semantic Versioning](https://semver.org/); the `/v1` HTTP protocol is backward compatible across 1.x.
 
+## 1.0.12
+
+Sees what visitors see, and measures what it resolves.
+
+- **Screenshots and images**: visitors can attach up to 4 images to a question (paperclip, paste or drag and drop; `features.attachments` on the widget, off by default). Vision models read them with the question: Claude as image blocks, OpenAI-compatible servers as `image_url` parts (`vision: true` in models.json, `OPENAI_VISION`, `OLLAMA_VISION`). Offered only when the assistant's model can see images; a failover to a text-only deployment replaces them with a note. The widget downscales big images before upload. `POST /v1/conversations/{id}/attachments` (image bytes as the body, type detected from the bytes), `attachmentIds` on runs, `attachments` on user messages, downloads for the owner and admins, thumbnails in console transcripts and the inbox. See [docs/api.md](docs/api.md#images-screenshots) and [docs/security.md](docs/security.md).
+- **Search without an answer**: `POST /v1/search` and `EmbedAssistant.search(query)` return the best passages for a query with the visitor's access rules and no model call, for your own search box or article suggestions. Admins test retrieval with `GET /v1/admin/assistants/{id}/search?q=&access=` or *Knowledge → Test search*.
+- **Resolution rate** in Insights: the share of answered conversations the assistant resolved on its own (no handoff, no answer rated down, last answer found knowledge), with the counts behind it, plus **searches without results**. See [docs/quality.md](docs/quality.md#insights).
+- `GET /v1/admin/models` reports which deployments can see images.
+- The widget build fails if a bundle grows past its size budget (guards against pulling a library into the page by accident).
+
 ## 1.0.11
 
 Procedures and style.

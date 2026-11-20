@@ -267,6 +267,19 @@ export const CreateRunRequest = z.object({
 });
 export type CreateRunRequest = z.infer<typeof CreateRunRequest>;
 
+/** Search the assistant's knowledge without generating an answer (e.g. a help-center search box). */
+export const SearchRequest = z.object({
+  query: z.string().trim().min(1).max(500),
+  limit: z.number().int().min(1).max(10).default(5),
+});
+export type SearchRequest = z.input<typeof SearchRequest>;
+
+export const SearchResponse = z.object({
+  /** Best passages first (`index` is the rank, from 1), only from knowledge this visitor may read. */
+  results: z.array(Citation),
+});
+export type SearchResponse = z.infer<typeof SearchResponse>;
+
 export const RunStatus = z.enum(["queued", "running", "completed", "failed", "cancelled"]);
 export type RunStatus = z.infer<typeof RunStatus>;
 

@@ -127,6 +127,8 @@ import {
   const tools = new Map<string, ToolRegistration>();
   let app: AppHandle | null = null;
   let pending: ((a: AppHandle) => void)[] = [];
+  /** Callers waiting for a result, told when the UI could not load. */
+  let failed: ((err: Error) => void)[] = [];
   let loading: Promise<void> | null = null;
 
   function loadApp(): Promise<void> {
@@ -145,10 +147,14 @@ import {
         app = window.__embedAssistantMount({ options, root, host, launcher, emit, initial, tools });
         const queued = pending;
         pending = [];
+        failed = [];
         queued.forEach((fn) => fn(app!));
       })
       .catch((err: Error) => {
         loading = null;
+        const waiting = failed;
+        failed = [];
+        waiting.forEach((fn) => fn(err));
         emit("error", { code: "load_failed", message: err.message });
       });
     return loading;
@@ -166,6 +172,12 @@ import {
     close: () => app?.close(),
     toggle: () => withApp((a) => a.toggle()),
     ask: (q) => withApp((a) => a.ask(q)),
+    search: (q, opts) =>
+      new Promise((resolve, reject) => {
+        if (typeof q !== "string" || !q.trim()) return reject(new TypeError("[embed-assistant] search needs a query"));
+        if (!app) failed.push(reject);
+        withApp((a) => a.search(q, opts?.limit).then(resolve, reject));
+      }),
     setContext: (ctx) => {
       initial.context = { ...initial.context, ...ctx };
       app?.setContext(ctx);

@@ -7,7 +7,7 @@ The complete, machine-readable description is served at `GET /openapi.json`. Thi
 1. `GET /v1/widgets/{widgetId}/config`: public settings (name, greeting, suggestions, theme). Cacheable.
 2. `POST /v1/sessions` with `{ widgetId, anonymousId }` or `{ widgetId, userToken }` returns `{ token, expiresAt, subject }`. Send the token as `Authorization: Bearer …` below.
 3. `POST /v1/conversations` returns a conversation.
-4. `POST /v1/conversations/{id}/runs` with `{ content, context?, idempotencyKey? }` returns `202 { run, userMessage }`.
+4. `POST /v1/conversations/{id}/runs` with `{ content, context?, attachmentIds?, idempotencyKey? }` returns `202 { run, userMessage }`.
 5. `GET /v1/runs/{runId}/events` streams Server-Sent Events until a terminal event.
 
 ```
@@ -37,6 +37,21 @@ Reconnect with `Last-Event-ID: <seq>` (or `?after=<seq>`) to continue exactly wh
 When a person on the team takes over (see [tools.md](tools.md#live-takeover-from-the-console-or-your-helpdesk)), the conversation's `mode` becomes `human`: follow `GET /v1/conversations/{id}/events` (Server-Sent Events `conversation.updated` and `message.created`, resumable with `Last-Event-ID`) and send with `POST /v1/conversations/{id}/messages`.
 
 Other endpoints: `GET /v1/conversations`, `GET/DELETE /v1/conversations/{id}`, `GET /v1/conversations/{id}/messages`, `GET /v1/runs/{id}`, `POST /v1/runs/{id}/cancel`, `POST /v1/messages/{id}/feedback`, `POST /v1/runs/{id}/tool-results`, `POST /v1/conversations/{id}/handoff`, and for signed-in users `GET /v1/memories`, `DELETE /v1/memories/{id}` and `DELETE /v1/memories` (what the assistant remembers, see [identity.md](identity.md#long-term-memory)). `DELETE /v1/conversations/{id}` deletes permanently. Tools and handoff are described in [tools.md](tools.md).
+
+### Images (screenshots)
+
+When the widget enables `features.attachments` and the assistant's model can see images (the public config then reports `features.attachments: true`), a question can carry up to 4 images:
+
+1. `POST /v1/conversations/{id}/attachments?name=shot.png` with the image bytes as the body (PNG, JPEG, GIF or WebP, at most 3.75 MiB; the type is detected from the bytes, SVG is refused) returns `201 { id, mediaType, name, size }`.
+2. Send the ids with the question: `POST /v1/conversations/{id}/runs` with `{ "content": "Why does this fail?", "attachmentIds": ["att_…"] }`.
+
+The user message then lists `attachments`. `GET /v1/conversations/{id}/attachments/{attachmentId}` downloads one (owner only; admins use `/v1/admin/conversations/{id}/attachments/{attachmentId}`), `DELETE` removes one that was not sent. Unsent uploads are deleted after 24 hours; sent ones live as long as their conversation. Only the question they were sent with includes the images; later turns only mention them. Personal-data masking does not apply to images.
+
+The widget downscales large images to 2048 px before uploading (fewer tokens, same legibility), and accepts the paperclip button, paste and drag and drop.
+
+### Search without an answer
+
+`POST /v1/search` with `{ "query": "reset password", "limit": 5 }` (session token, like the chat endpoints) returns `{ results: Citation[] }`: the passages the assistant would read, best first, from the knowledge this visitor may read, without calling a language model. Use it for a search box, or to suggest articles before a contact form. In the page: `await EmbedAssistant.search("reset password")`. Searches (and those that found nothing) appear in Insights. Admins can test retrieval with `GET /v1/admin/assistants/{id}/search?q=…&access=staff` or *Knowledge → Test search* in the console.
 
 Rules:
 

@@ -63,6 +63,15 @@ export interface WidgetOptions {
 }
 
 /** Public JavaScript API: `window.EmbedAssistant`. Calls made before the app loads are queued. */
+/** One search hit: `title` is "Document › Section", `snippet` a short excerpt, `index` the rank (from 1). */
+export interface SearchResult {
+  index: number;
+  documentId: string;
+  title: string;
+  url: string | null;
+  snippet: string;
+}
+
 export interface EmbedAssistantApi {
   readonly version: string;
   open(): void;
@@ -70,6 +79,11 @@ export interface EmbedAssistantApi {
   toggle(): void;
   /** Open the chat and ask a question. */
   ask(question: string): void;
+  /**
+   * Search the assistant's knowledge without an AI answer (for your own search box).
+   * Resolves to the best passages first; only knowledge this visitor may read.
+   */
+  search(query: string, options?: { limit?: number }): Promise<SearchResult[]>;
   /** Extra context sent with every question (merged with page url/title). */
   setContext(ctx: PageContextInput): void;
   /** Recognise the signed-in user: a function returning a JWT signed by your backend (or null to sign out). */
@@ -101,6 +115,7 @@ export interface AppHandle {
   ask(question: string): void;
   setContext(ctx: PageContextInput): void;
   identify(provider: UserTokenProvider | null): void;
+  search(query: string, limit?: number): Promise<SearchResult[]>;
   destroy(): void;
   isOpen(): boolean;
 }

@@ -18,6 +18,7 @@ import { mcpRoutes } from "../mcp/server.js";
 import { adminMcpRoutes } from "./routes/adminMcp.js";
 import { chatRoutes } from "./routes/chat.js";
 import { memoryRoutes } from "./routes/memory.js";
+import { searchRoutes } from "./routes/search.js";
 import { playbookRoutes } from "./routes/playbooks.js";
 import { opsRoutes } from "./routes/ops.js";
 import { publicRoutes } from "./routes/public.js";
@@ -67,7 +68,7 @@ export function createApp(s: Services): Hono<AppEnv> {
 
   // Public widget API: CORS for any origin, allowlist enforced per widget in the handlers.
   // Note: in Hono "/x/*" also matches "/x", so each prefix is listed once.
-  for (const p of ["/v1/widgets/*", "/v1/sessions", "/v1/conversations/*", "/v1/runs/*", "/v1/messages/*", "/v1/memories/*"]) {
+  for (const p of ["/v1/widgets/*", "/v1/sessions", "/v1/conversations/*", "/v1/runs/*", "/v1/messages/*", "/v1/memories/*", "/v1/search"]) {
     app.use(p, publicCors());
   }
   // Bound request bodies before anything parses them.
@@ -85,7 +86,7 @@ export function createApp(s: Services): Hono<AppEnv> {
     return publicBodyLimit(c, next);
   });
   const chatAuth = sessionAuth(s, widgets);
-  for (const p of ["/v1/conversations/*", "/v1/runs/*", "/v1/messages/*", "/v1/memories/*"]) {
+  for (const p of ["/v1/conversations/*", "/v1/runs/*", "/v1/messages/*", "/v1/memories/*", "/v1/search"]) {
     app.use(p, async (c, next) => (c.req.method === "OPTIONS" ? next() : chatAuth(c, next)));
   }
   app.use("/v1/platform/*", bodyLimit({ maxSize: 64 * 1024, onError: tooLarge }));
@@ -97,6 +98,7 @@ export function createApp(s: Services): Hono<AppEnv> {
   publicRoutes(app, s, widgets);
   chatRoutes(app, s);
   memoryRoutes(app, s);
+  searchRoutes(app, s);
   adminRoutes(app, s, widgets);
   adminAgentRoutes(app, s);
   adminMcpRoutes(app, s);

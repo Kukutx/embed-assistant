@@ -14,11 +14,13 @@ It is built to be generic and boring to operate:
 - **Speaks MCP both ways.** Other AI tools (IDE agents, desktop assistants) can search your knowledge and get grounded answers through `/mcp`; assistants can use the tools of any remote MCP server. See [docs/mcp.md](docs/mcp.md).
 - **Fits into your systems.** [Standard Webhooks](https://www.standardwebhooks.com/) for conversations, answers, feedback, handoffs, syncs and audit entries; scoped API keys; NDJSON export.
 - **Guardrails and evaluations.** Refuse blocked terms and topics, harmful requests and prompt-injection attempts, and stop answers that mention what they must not. Test suites score answers (required phrases, citations, expected behaviour, a model judge against reference answers) and flag regressions after every change. Every save of an assistant is a version you can compare, evaluate and restore, and every answer can be inspected (passages, tools, timings, tokens). See [docs/quality.md](docs/quality.md).
-- **Learns where it falls short.** Insights show top questions, knowledge gaps, unhelpful answers, handoffs and tool usage, so you know which docs to write next.
+- **Learns where it falls short.** Insights show the share of conversations the assistant resolved on its own, top questions, knowledge gaps, searches that found nothing, unhelpful answers, handoffs and tool usage, so you know which docs to write next.
 - **Team access with single sign-on.** People sign in to the console through any OpenID Connect provider (Entra ID, Google, Okta, Auth0, Keycloak…) and get a role: owner, admin, editor, analyst or agent. See [docs/access.md](docs/access.md).
 - **Ready for operations teams.** Docker Compose or a hardened Helm chart for Kubernetes, zero-downtime `SECRET_KEY` rotation, a platform API to create, suspend and delete tenants, audit log of every admin change (streamable to a SIEM), OpenTelemetry tracing with GenAI conventions, Prometheus metrics, request ids and structured JSON logs. See [docs/operations.md](docs/operations.md).
 - **Remembers signed-in users, if you want it to.** Opt-in long-term memory keeps facts users share (language, plan, preferences) across conversations; users see and erase it in the widget. See [docs/identity.md](docs/identity.md#long-term-memory).
+- **Sees screenshots.** Visitors can paste or drop a screenshot of an error (optional); vision models (Claude, GPT, or local ones like Qwen-VL) read it with the question.
 - **Voice input.** An optional microphone button dictates questions with the browser's speech recognition.
+- **Search without chat.** `POST /v1/search` (or `EmbedAssistant.search()`) returns the best passages for a query with the same access rules, for your own search box.
 - **Privacy built in.** Optional masking of e-mails, phone, card and IBAN numbers before storage, retention policies, and per-visitor erasure.
 - **Open protocol.** Versioned HTTP + Server-Sent Events API with an OpenAPI document. Build your own UI, bot or integration in any language.
 
@@ -65,6 +67,7 @@ JavaScript API, available as soon as the loader runs (calls are queued until the
 ```js
 EmbedAssistant.open();                       // also: close(), toggle()
 EmbedAssistant.ask("How do I export my data?");
+const hits = await EmbedAssistant.search("export data"); // knowledge search, no AI answer
 EmbedAssistant.setContext({ attributes: { plan: "pro", page: "billing" } });
 EmbedAssistant.identify(async () => (await fetch("/api/assistant-token")).text());
 EmbedAssistant.on("message", (m) => analytics.track("assistant_answer", m));

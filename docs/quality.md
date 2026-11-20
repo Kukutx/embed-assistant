@@ -1,6 +1,6 @@
-# Guardrails and evaluations
+# Guardrails, evaluations and insights
 
-Two tools keep answers safe and good as you change instructions, models and
+Three tools keep answers safe and good as you change instructions, models and
 knowledge: **guardrails** decide what the assistant refuses, and
 **evaluations** measure how well it answers a fixed set of questions.
 
@@ -133,3 +133,12 @@ Good suites start small: 20 questions visitors really ask (Insights lists the
 top questions and knowledge gaps, and has an *Add to evals* button), each with
 one or two phrases the answer must contain, plus a few questions that must be
 refused.
+
+## Insights
+
+`GET /v1/admin/insights?days=30` (the console's *Insights* page) summarises a period:
+
+- **Resolved by the assistant**: the share of conversations with at least one answer that the assistant handled on its own. A conversation is *not* resolved when a person was asked for, an answer was rated not helpful, or its last answer found no knowledge (with sources configured). `resolution` has the counts behind the rate. It is a conservative proxy: a visitor who leaves without rating counts as resolved, so read it with satisfaction and handoffs.
+- **Knowledge gaps**: questions that matched no knowledge, most frequent first.
+- **Searches without results**: queries sent to `POST /v1/search` that matched nothing (`searches`).
+- Top questions, answers rated not helpful, tool calls and errors, and guardrail refusals.

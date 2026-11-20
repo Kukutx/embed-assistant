@@ -12,6 +12,7 @@ import type {
   PageContext,
   PublicWidgetConfig,
   RunEvent,
+  SearchResponse,
   Session,
 } from "@embed-assistant/protocol";
 import type { UserTokenProvider } from "./shared.js";
@@ -215,6 +216,9 @@ export class Client {
       ...(attachmentIds?.length ? { attachmentIds } : {}),
       idempotencyKey,
     });
+  }
+  search(query: string, limit = 5): Promise<SearchResponse> {
+    return this.request("POST", "/v1/search", { query: query.slice(0, 500), limit: Math.min(10, Math.max(1, Math.round(limit))) });
   }
   uploadAttachment(conversationId: string, file: Blob, name?: string): Promise<Attachment> {
     const q = name ? `?name=${encodeURIComponent(name.slice(0, 200))}` : "";

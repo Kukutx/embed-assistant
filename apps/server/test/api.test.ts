@@ -203,6 +203,25 @@ describe.skipIf(!DB)("API (postgres)", () => {
     expect((await req("POST", "/v1/sessions", { body: { widgetId, userToken: forged } })).status).toBe(401);
   });
 
+  it("searches knowledge without an answer, with the same access rules", async () => {
+    await json(req("POST", "/v1/search", { body: { query: "refunds" } }), 401);
+    const anon = await session();
+    const found = await json(req("POST", "/v1/search", { token: anon, body: { query: "how do refunds work", limit: 3 } }), 200);
+    expect(found.results[0]).toMatchObject({ index: 1, title: expect.stringContaining("Refund"), snippet: expect.stringContaining("30 days") });
+    expect((await json(req("POST", "/v1/search", { token: anon, body: { query: "zebracorn escalation" } }), 200)).results).toEqual([]);
+    await json(req("POST", "/v1/search", { token: anon, body: { query: "  " } }), 400);
+    // Admins can test retrieval as a visitor with given access groups.
+    expect((await json(admin("GET", `/assistants/${assistantId}/search?q=zebracorn`), 200)).results).toEqual([]);
+    const asStaff = await json(admin("GET", `/assistants/${assistantId}/search?q=zebracorn&access=staff`), 200);
+    expect(asStaff.results[0].title).toContain("Zebracorn");
+    // Searches show up in Insights, with the ones that found nothing.
+    await new Promise((ok) => setTimeout(ok, 50));
+    const ins = await json(admin("GET", "/insights?days=1"), 200);
+    expect(ins.searches).toMatchObject({ count: 2, withoutResults: 1, gaps: [expect.objectContaining({ question: "zebracorn escalation", count: 1 })] });
+    expect(ins.resolution.engaged).toBeGreaterThan(0);
+    expect(ins.resolution.rate).toBeGreaterThanOrEqual(0);
+  });
+
   it("allows one active run per conversation, cancels, and enforces the token budget", async () => {
     await json(admin("PATCH", `/assistants/${assistantId}`, { modelAlias: "slow" }), 200);
     const token = await session({ anonymousId: "cancel-test-abcdefghijklmnop" });

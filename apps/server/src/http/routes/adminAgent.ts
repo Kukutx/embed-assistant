@@ -356,7 +356,8 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
       const to = new Date();
       const from = new Date(to.getTime() - query.days * 86400_000);
       const norm = sql`lower(regexp_replace(btrim(m.content), '\\s+', ' ', 'g'))`;
-      const [counts, top, gaps, down, tools, guards] = await Promise.all([
+      const searchNorm = sql`lower(regexp_replace(btrim(x.query), '\s+', ' ', 'g'))`;
+      const [counts, top, gaps, down, tools, guards, resolution, searchCounts, searchGaps] = await Promise.all([
         sql<{ conversations: string; questions: string; unanswered: string; handoffs: string; up: string; down: string }[]>`
           SELECT
             (SELECT count(*) FROM conversations WHERE tenant_id = ${tenantId} AND created_at >= ${from}) AS conversations,
@@ -389,8 +390,32 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
           SELECT guardrail AS kind, count(*) AS count FROM runs
           WHERE tenant_id = ${tenantId} AND created_at >= ${from} AND guardrail IS NOT NULL
           GROUP BY 1 ORDER BY 2 DESC`,
+        sql<{ engaged: number; resolved: number; handed_off: number; downvoted: number; no_knowledge: number }[]>`
+          WITH c AS (
+            SELECT cv.handoff_at IS NOT NULL AS handed,
+              EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = cv.id AND m.feedback = 'down') AS down,
+              coalesce((SELECT r.source_count = 0 AND r.guardrail IS NULL FROM runs r
+                        WHERE r.conversation_id = cv.id AND r.status = 'completed' ORDER BY r.created_at DESC LIMIT 1), false) AS gap
+            FROM conversations cv
+            WHERE cv.tenant_id = ${tenantId} AND cv.created_at >= ${from}
+              AND EXISTS (SELECT 1 FROM runs r WHERE r.conversation_id = cv.id AND r.status = 'completed'))
+          SELECT count(*)::int AS engaged,
+            count(*) FILTER (WHERE NOT handed AND NOT down AND NOT gap)::int AS resolved,
+            count(*) FILTER (WHERE handed)::int AS handed_off,
+            count(*) FILTER (WHERE down)::int AS downvoted,
+            count(*) FILTER (WHERE gap)::int AS no_knowledge
+          FROM c`,
+        sql<{ count: number; empty: number }[]>`
+          SELECT count(*)::int AS count, count(*) FILTER (WHERE result_count = 0)::int AS empty
+          FROM searches WHERE tenant_id = ${tenantId} AND created_at >= ${from}`,
+        sql<{ question: string; count: string; last: Date }[]>`
+          SELECT min(x.query) AS question, count(*) AS count, max(x.created_at) AS last
+          FROM searches x WHERE x.tenant_id = ${tenantId} AND x.created_at >= ${from} AND x.result_count = 0
+          GROUP BY ${searchNorm} ORDER BY count(*) DESC, max(x.created_at) DESC LIMIT 20`,
       ]);
       const k = counts[0]!;
+      const rs = resolution[0]!;
+      const sc = searchCounts[0]!;
       const up = Number(k.up);
       const dn = Number(k.down);
       const body: Insights = {
@@ -408,6 +433,19 @@ export function adminAgentRoutes(app: Hono<AppEnv>, s: Services): void {
         downvoted: down.map((r) => ({ conversationId: r.conversation_id, messageId: r.id, question: r.question ?? "", answer: r.answer, comment: r.comment, createdAt: iso(r.created_at) })),
         tools: tools.map((r) => ({ name: r.name, calls: Number(r.calls), errors: Number(r.errors) })),
         guardrails: guards.map((r) => ({ kind: r.kind, count: Number(r.count) })),
+        resolution: {
+          engaged: rs.engaged,
+          resolved: rs.resolved,
+          rate: rs.engaged ? rs.resolved / rs.engaged : null,
+          handedOff: rs.handed_off,
+          downvoted: rs.downvoted,
+          noKnowledge: rs.no_knowledge,
+        },
+        searches: {
+          count: sc.count,
+          withoutResults: sc.empty,
+          gaps: searchGaps.map((r) => ({ question: r.question, count: Number(r.count), lastAskedAt: iso(r.last) })),
+        },
       };
       return c.json(body);
     });

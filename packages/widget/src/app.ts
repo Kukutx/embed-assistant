@@ -233,6 +233,7 @@ class App {
       this.context = { ...this.context, ...ctx };
     },
     identify: (p) => this.identify(p),
+    search: async (q, limit) => (await this.client.search(q, limit)).results,
     destroy: () => {
       this.running?.abort.abort();
       this.recognition?.abort();

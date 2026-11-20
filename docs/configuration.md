@@ -23,7 +23,9 @@ All settings are environment variables (a `.env` file works with Docker Compose 
 | `ANTHROPIC_MODEL` / `ANTHROPIC_FAST_MODEL` | `claude-opus-5-5` / `claude-haiku-5-5` |
 | `ANTHROPIC_EFFORT` | `low` (fast, cheap answers; raise for harder domains) |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | `https://api.openai.com/v1`, `gpt-5-mini` |
+| `OPENAI_VISION` | `true`: the model accepts images (set `false` for a text-only model behind `OPENAI_BASE_URL`) |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `llama3.2` |
+| `OLLAMA_VISION` | `false`: set `true` when `OLLAMA_MODEL` is a vision model (e.g. `llama3.2-vision`, `qwen2.5vl`) |
 | `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_API_KEY`, `EMBEDDINGS_MODEL` | (optional, any OpenAI-compatible `/embeddings`) |
 | `MODELS_CONFIG` | Path to a JSON file that replaces all of the above. |
 
@@ -39,7 +41,7 @@ Without `MODELS_CONFIG`, these aliases are generated from whatever is configured
 {
   "deployments": [
     { "id": "claude", "provider": "anthropic", "model": "claude-opus-5-5", "apiKey": "${ANTHROPIC_API_KEY}", "effort": "low" },
-    { "id": "vllm", "provider": "openai-compatible", "model": "qwen3", "baseUrl": "http://vllm:8000/v1", "requiresKey": false },
+    { "id": "vllm", "provider": "openai-compatible", "model": "qwen3-vl", "baseUrl": "http://vllm:8000/v1", "requiresKey": false, "vision": true },
     { "id": "extractive", "provider": "builtin-extractive" }
   ],
   "aliases": { "standard": ["claude", "vllm", "extractive"] },
@@ -47,7 +49,8 @@ Without `MODELS_CONFIG`, these aliases are generated from whatever is configured
 }
 ```
 
-- Providers: `anthropic` (official SDK; `effort`, `baseUrl` optional), `openai-compatible` (`/chat/completions` streaming), `builtin-extractive` (no model, quotes sources).
+- Providers: `anthropic` (official SDK; `effort`, `baseUrl` optional), `openai-compatible` (`/chat/completions` streaming; `vision: true` when the model accepts images), `builtin-extractive` (no model, quotes sources).
+- Images visitors attach (widget `features.attachments`) are offered only when the alias's first available deployment can see images. Claude models always can. If a failover lands on a text-only deployment, the images are replaced by a note so the model asks the visitor to describe them instead of guessing.
 - A deployment without credentials is skipped. A failure *before the first token* moves to the next deployment; after text has streamed the run fails rather than mixing two answers.
 - Changing the embeddings model is safe: chunks remember their model and dimension, and a vector index per dimension is created automatically. Re-sync sources to re-embed.
 

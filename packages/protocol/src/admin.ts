@@ -656,6 +656,32 @@ export const Insights = z.object({
   tools: z.array(z.object({ name: z.string(), calls: z.number().int(), errors: z.number().int() })),
   /** Questions refused or answers replaced by guardrails, by rule. */
   guardrails: z.array(z.object({ kind: GuardrailKind, count: z.number().int() })),
+  /**
+   * Conversations the assistant resolved on its own: it answered, nobody asked for a person,
+   * no answer was rated down and the last answer found knowledge. Absent before 1.0.12.
+   */
+  resolution: z
+    .object({
+      /** Conversations with at least one completed answer. */
+      engaged: z.number().int(),
+      resolved: z.number().int(),
+      /** resolved / engaged (0..1), null without conversations. */
+      rate: z.number().nullable(),
+      handedOff: z.number().int(),
+      downvoted: z.number().int(),
+      /** The last answer found no knowledge. */
+      noKnowledge: z.number().int(),
+    })
+    .optional(),
+  /** Searches through POST /v1/search (no AI answer). Absent before 1.0.12. */
+  searches: z
+    .object({
+      count: z.number().int(),
+      withoutResults: z.number().int(),
+      /** Search queries that found nothing, most frequent first. */
+      gaps: z.array(CountedQuestion),
+    })
+    .optional(),
 });
 export type Insights = z.infer<typeof Insights>;
 

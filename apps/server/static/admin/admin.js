@@ -715,8 +715,54 @@ async function knowledge(main) {
           )
         : h("p", { class: "muted", text: "No knowledge yet. Add a website, a sitemap, or push documents through the API." }),
     ),
+    list.length ? await searchTester() : null,
   );
   if (list.some((s) => s.status === "queued" || s.status === "running")) pollTimer = setTimeout(() => route(), 3000);
+}
+
+/** Try a query against an assistant's knowledge, as a visitor with some access groups would search it. */
+async function searchTester() {
+  const assistants = await api("GET", "/assistants").catch(() => []);
+  if (!assistants.length) return null;
+  const pick = h("select", { "aria-label": "Assistant" }, ...assistants.map((a) => h("option", { value: a.id, text: a.name })));
+  const q = h("input", { type: "search", placeholder: "A question visitors ask", "aria-label": "Query", style: "flex:1;min-width:220px" });
+  const groups = h("input", { placeholder: "Access groups, comma-separated (optional)", "aria-label": "Access groups", style: "min-width:220px" });
+  const out = h("div", { style: "margin-top:12px" });
+  const run = async (e) => {
+    e?.preventDefault();
+    if (!q.value.trim()) return;
+    out.replaceChildren(h("p", { class: "muted", text: "Searching…" }));
+    try {
+      const params = new URLSearchParams({ q: q.value.trim(), ...(groups.value.trim() ? { access: groups.value.trim() } : {}) });
+      const r = await api("GET", `/assistants/${pick.value}/search?${params}`);
+      out.replaceChildren(
+        r.results.length
+          ? h(
+              "ol",
+              { class: "results" },
+              ...r.results.map((x) =>
+                h(
+                  "li",
+                  {},
+                  /^https?:\/\//i.test(x.url ?? "") ? h("a", { href: x.url, target: "_blank", rel: "noopener noreferrer", text: x.title }) : h("strong", { text: x.title }),
+                  h("div", { class: "small muted", text: x.snippet }),
+                ),
+              ),
+            )
+          : h("p", { class: "muted", text: "Nothing found. Visitors asking this get no grounded answer: add or fix a document." }),
+      );
+    } catch (err) {
+      out.replaceChildren(h("p", { class: "error", text: errorText(err) }));
+    }
+  };
+  return h(
+    "div",
+    { class: "card", style: "margin-top:16px" },
+    h("h2", { text: "Test search" }),
+    h("p", { class: "muted small", text: "The passages an assistant would read for a question (public knowledge plus the access groups you enter). Also available to your site as POST /v1/search." }),
+    h("form", { class: "row", onsubmit: run }, pick, q, groups, h("button", { class: "btn primary", type: "submit", text: "Search" })),
+    out,
+  );
 }
 
 function sourceForm(done) {
@@ -1110,12 +1156,22 @@ async function insights(main) {
       "div",
       { class: "grid", style: "margin-bottom:16px" },
       stat("Conversations", ins.conversations),
+      ins.resolution ? stat("Resolved by the assistant", ins.resolution.rate === null ? "—" : `${Math.round(ins.resolution.rate * 100)}%`) : null,
       stat("Questions", ins.questions),
       stat("Answered from knowledge", pct(ins.questions - ins.unanswered, ins.questions)),
       stat("Handoffs to people", `${ins.handoffs} (${pct(ins.handoffs, ins.conversations)})`),
       stat("Satisfaction", ins.satisfaction === null ? "—" : `${Math.round(ins.satisfaction * 100)}%`),
       stat("Ratings", `${ins.feedbackUp} 👍 · ${ins.feedbackDown} 👎`),
     ),
+    ins.resolution?.engaged
+      ? h(
+          "p",
+          { class: "muted small", style: "margin:-8px 0 16px" },
+          `Resolved: ${ins.resolution.resolved} of ${ins.resolution.engaged} conversations with an answer. Not resolved: ` +
+            `${ins.resolution.handedOff} handed to a person, ${ins.resolution.downvoted} with an answer rated not helpful, ` +
+            `${ins.resolution.noKnowledge} whose last question found no knowledge (a conversation can count in several).`,
+        )
+      : null,
     list(
       "Knowledge gaps",
       "Questions for which no relevant knowledge was found. Writing or fixing these docs improves answers the most.",
@@ -1131,6 +1187,14 @@ async function insights(main) {
       ),
       "No gaps in this period.",
     ),
+    ins.searches?.count
+      ? list(
+          `Searches without results (${ins.searches.withoutResults} of ${ins.searches.count} searches)`,
+          "Queries typed in a search box using the search API that matched no knowledge.",
+          ins.searches.gaps.map((q) => h("tr", {}, h("td", { text: q.question }), h("td", { class: "small muted", text: `${q.count}×` }), h("td", { class: "small muted", text: fmtDate(q.lastAskedAt) }))),
+          "Every search found something.",
+        )
+      : null,
     list(
       "Answers rated not helpful",
       null,
