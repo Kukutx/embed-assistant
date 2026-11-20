@@ -62,7 +62,6 @@ export interface WidgetOptions {
   inline?: boolean;
 }
 
-/** Public JavaScript API: `window.EmbedAssistant`. Calls made before the app loads are queued. */
 /** One search hit: `title` is "Document › Section", `snippet` a short excerpt, `index` the rank (from 1). */
 export interface SearchResult {
   index: number;
@@ -72,6 +71,7 @@ export interface SearchResult {
   snippet: string;
 }
 
+/** Public JavaScript API: `window.EmbedAssistant`. Calls made before the app loads are queued. */
 export interface EmbedAssistantApi {
   readonly version: string;
   open(): void;

@@ -2,6 +2,8 @@
 
 Load the script once (for example in your root component) and use the global API anywhere. No package or wrapper is needed, so it works with every framework and version.
 
+**TypeScript**: download the declarations your server publishes, `https://assistant.example.com/widget/embed-assistant.d.ts`, into your project (for example `src/types/embed-assistant.d.ts`). `window.EmbedAssistant` and `window.EmbedAssistantConfig` are then fully typed, without the `as any` casts below.
+
 ## React
 
 ```tsx
